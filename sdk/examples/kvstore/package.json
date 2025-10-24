@@ -1,0 +1,13 @@
+{
+  "name": "kvstore-example",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx index.ts"
+  },
+  "dependencies": {
+    "agentos-sdk": "file:../..",
+    "tsx": "^4.7.0"
+  }
+}

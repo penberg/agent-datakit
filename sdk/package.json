@@ -1,0 +1,38 @@
+{
+  "name": "agentos-sdk",
+  "version": "0.1.0",
+  "description": "AgentOS SDK",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest watch",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest run --coverage",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "turso",
+    "sqlite",
+    "key-value",
+    "filesystem"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@vitest/ui": "^4.0.1",
+    "typescript": "^5.3.0",
+    "vitest": "^4.0.1"
+  },
+  "dependencies": {
+    "@tursodatabase/database": "^0.2.2"
+  },
+  "files": [
+    "dist"
+  ]
+}
