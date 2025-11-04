@@ -62,6 +62,10 @@ jobs:
     - name: Run tests
       run: cargo test --verbose
 
+    - name: Run integration tests
+      if: matrix.project == 'agentfs'
+      run: tests/all.sh
+
   check:
     name: Check
     runs-on: ubuntu-latest
