@@ -1,20 +1,20 @@
 <p align="center">
-  <h1 align="center">AgentOS</h1>
+  <h1 align="center">AgentFS</h1>
 </p>
 
 <p align="center">
-  The operating system for agents
+  The filesystem for agents
 </p>
 
 ---
 
 > **⚠️ Warning:** This software is ALPHA; use only for development, testing, and experimentation. We are working to make it production-ready, but do not use it for critical data until it is ready.
 
-## What is AgentOS?
+## What is AgentFS?
 
-AgentOS is an operating system designed specifically for running AI agents. Just as traditional operating systems provide processes, filesystems, and system calls for applications, AgentOS provides the runtime environment and storage abstractions that AI agents need.
+AgentFS is a filesystem designed specifically for AI agents. Just as traditional filesystems provide file and directory abstractions for applications, AgentFS provides the storage abstractions that AI agents need.
 
-At the heart of AgentOS is the [agent filesystem](SPEC.md) - a complete SQLite-based storage system for agents implemented using [Turso](https://github.com/tursodatabase/turso). It combines three essential components: a POSIX-like virtual filesystem for files and directories, a key-value store for agent state and context, and an audit trail tool for debugging and analysis. Everything an agent does - every file it creates, every piece of state it stores, every tool it invokes - lives in a single SQLite database file.
+At the heart of AgentFS is the [agent filesystem](SPEC.md) - a complete SQLite-based storage system for agents implemented using [Turso](https://github.com/tursodatabase/turso). It combines three essential components: a POSIX-like virtual filesystem for files and directories, a key-value store for agent state and context, and an audit trail tool for debugging and analysis. Everything an agent does - every file it creates, every piece of state it stores, every tool it invokes - lives in a single SQLite database file.
 
 ## The Agent Filesystem
 
@@ -34,10 +34,10 @@ This design provides unique capabilities:
 
 ## Components
 
-AgentOS provides three main components:
+AgentFS provides three main components:
 
-1. **[AgentOS CLI](MANUAL.md)**: Command-line tool for managing agents and running them in sandboxed environments
-2. **AgentOS SDK**: TypeScript/JavaScript SDK for building agents (see [MANUAL.md](MANUAL.md#agentos-sdk) for full documentation)
+1. **[AgentFS CLI](MANUAL.md)**: Command-line tool for managing agents and running them in sandboxed environments
+2. **AgentFS SDK**: TypeScript/JavaScript SDK for building agents (see [MANUAL.md](MANUAL.md#agentfs-sdk) for full documentation)
 3. **[Agent Filesystem Specification](SPEC.md)**: Complete technical specification of the SQLite schema
 
 ## Quick Start
@@ -47,15 +47,15 @@ AgentOS provides three main components:
 Initialize an agent filesystem:
 
 ```bash
-$ agentos init
+$ agentfs init
 Created agent filesystem: agent.db
 ```
 
 Run a program in the sandbox with the agent filesystem mounted at `/agent`:
 
 ```bash
-$ agentos run /bin/bash
-Welcome to AgentOS!
+$ agentfs run /bin/bash
+Welcome to AgentFS!
 
 $ echo "hello from agent" > /agent/hello.txt
 $ cat /agent/hello.txt
@@ -66,10 +66,10 @@ $ exit
 Inspect the agent filesystem from outside:
 
 ```bash
-$ agentos fs ls
+$ agentfs fs ls
 f hello.txt
 
-$ agentos fs cat hello.txt
+$ agentfs fs cat hello.txt
 hello from agent
 ```
 
@@ -80,15 +80,15 @@ Read the **[User Manual](MANUAL.md)** for complete documentation.
 Install the SDK in your project:
 
 ```bash
-npm install agentos-sdk
+npm install agentfs-sdk
 ```
 
 Use it in your agent code:
 
 ```typescript
-import { AgentOS } from 'agentos-sdk';
+import { AgentFS } from 'agentfs-sdk';
 
-const agent = new AgentOS('./agent.db');
+const agent = new AgentFS('./agent.db');
 
 // Key-value operations
 await agent.kv.set('user:preferences', { theme: 'dark' });
@@ -108,9 +108,9 @@ await agent.tools.record(
 );
 ```
 
-See the **[SDK documentation in MANUAL.md](MANUAL.md#agentos-sdk)** and **[examples](sdk/examples/)** for more details.
+See the **[SDK documentation in MANUAL.md](MANUAL.md#agentfs-sdk)** and **[examples](sdk/examples/)** for more details.
 
-## Why AgentOS?
+## Why AgentFS?
 
 **Auditability**: Every file operation, tool call, and state change is recorded in SQLite. Query your agent's complete history with SQL to debug issues, analyze behavior, or meet compliance requirements.
 
@@ -124,7 +124,7 @@ See the **[SDK documentation in MANUAL.md](MANUAL.md#agentos-sdk)** and **[examp
 
 ## Learn More
 
-- **[User Manual](MANUAL.md)** - Complete guide to using the AgentOS CLI and SDK
+- **[User Manual](MANUAL.md)** - Complete guide to using the AgentFS CLI and SDK
 - **[Agent Filesystem Specification](SPEC.md)** - Technical specification of the SQLite schema
 - **[SDK Examples](sdk/examples/)** - Working code examples
 - **[Turso database](https://github.com/tursodatabase/turso)** - an in-process SQL database, compatible with SQLite.

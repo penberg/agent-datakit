@@ -10,7 +10,7 @@ gcc -o tests/test_fd tests/test_fd.c
 mkdir -p sandbox
 echo "Hello from virtual FD!" > sandbox/test.txt
 
-# Run the test through agentos
+# Run the test through agentfs
 if ! output=$(cargo run -- run --mount type=bind,src=sandbox,dst=/sandbox tests/test_fd 2>&1); then
     echo "Test FAILED: Command failed to run"
     echo "Output was: $output"

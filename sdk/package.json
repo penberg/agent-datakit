@@ -1,7 +1,7 @@
 {
-  "name": "agentos-sdk",
+  "name": "agentfs-sdk",
   "version": "0.1.0",
-  "description": "AgentOS SDK",
+  "description": "AgentFS SDK",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {

@@ -1,8 +1,8 @@
-import { AgentOS } from "agentos-sdk";
+import { AgentFS } from "agentfs-sdk";
 
 async function main() {
-  // Initialize AgentOS (in-memory for this example)
-  const agent = new AgentOS(":memory:");
+  // Initialize AgentFS (in-memory for this example)
+  const agent = new AgentFS(":memory:");
 
   console.log("=== KvStore Example ===\n");
 

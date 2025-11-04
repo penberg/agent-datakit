@@ -3,7 +3,7 @@ import { KvStore } from './kvstore';
 import { Filesystem } from './filesystem';
 import { ToolCalls } from './toolcalls';
 
-export class AgentOS {
+export class AgentFS {
   private db: Database;
   private initialized: Promise<void>;
 

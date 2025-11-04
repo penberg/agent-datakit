@@ -1,4 +1,4 @@
-use agentos::{
+use agentfs::{
     init_fd_tables, init_mount_table, init_strace, MountConfig, MountTable, PassthroughVfs,
     Sandbox, SqliteVfs,
 };
@@ -15,7 +15,7 @@ use std::{
 use turso::{Builder, Value};
 
 #[derive(Parser, Debug)]
-#[command(name = "agentos")]
+#[command(name = "agentfs")]
 #[command(about = "A sandbox for agents that intercepts filesystem operations", long_about = None)]
 struct Args {
     #[command(subcommand)]
@@ -508,7 +508,7 @@ async fn main() -> Result<(), Error> {
             command,
             args,
         } => {
-            eprintln!("Welcome to AgentOS!");
+            eprintln!("Welcome to AgentFS!");
             eprintln!();
 
             let mut mount_table = MountTable::new();
@@ -516,7 +516,7 @@ async fn main() -> Result<(), Error> {
             // If no mounts specified, add default agent.db mount at /agent
             if mounts.is_empty() {
                 mounts.push(MountConfig {
-                    mount_type: agentos::MountType::Sqlite {
+                    mount_type: agentfs::MountType::Sqlite {
                         src: PathBuf::from("agent.db"),
                     },
                     dst: PathBuf::from("/agent"),
@@ -526,7 +526,7 @@ async fn main() -> Result<(), Error> {
             eprintln!("The following mount points are sandboxed:");
             for mount_config in &mounts {
                 match &mount_config.mount_type {
-                    agentos::MountType::Bind { src } => {
+                    agentfs::MountType::Bind { src } => {
                         eprintln!(
                             " - {} -> {} (host)",
                             mount_config.dst.display(),
@@ -540,7 +540,7 @@ async fn main() -> Result<(), Error> {
                         ));
                         mount_table.add_mount(mount_config.dst.clone(), vfs);
                     }
-                    agentos::MountType::Sqlite { src } => {
+                    agentfs::MountType::Sqlite { src } => {
                         eprintln!(
                             " - {} -> {} (sqlite)",
                             mount_config.dst.display(),

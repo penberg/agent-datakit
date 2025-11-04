@@ -13,7 +13,7 @@ describe('Filesystem Integration Tests', () => {
 
   beforeEach(async () => {
     // Create temporary directory for test database
-    tempDir = mkdtempSync(join(tmpdir(), 'agentos-test-'));
+    tempDir = mkdtempSync(join(tmpdir(), 'agentfs-test-'));
     dbPath = join(tempDir, 'test.db');
 
     // Initialize database and Filesystem

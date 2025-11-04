@@ -1,7 +1,7 @@
-import { AgentOS } from "agentos-sdk";
+import { AgentFS } from "agentfs-sdk";
 
 async function main() {
-  const agent = new AgentOS(":memory:");
+  const agent = new AgentFS(":memory:");
 
   // Write a file
   console.log("Writing file...");

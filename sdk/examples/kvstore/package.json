@@ -7,7 +7,7 @@
     "start": "tsx index.ts"
   },
   "dependencies": {
-    "agentos-sdk": "file:../..",
+    "agentfs-sdk": "file:../..",
     "tsx": "^4.7.0"
   }
 }

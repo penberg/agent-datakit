@@ -1,8 +1,8 @@
-import { AgentOS } from '../../src';
+import { AgentFS } from '../../src';
 
 async function main() {
   // Create an agent with an in-memory database
-  const agent = new AgentOS(':memory:');
+  const agent = new AgentFS(':memory:');
   await agent.ready();
 
   console.log('=== Tool Call Tracking Example ===\n');

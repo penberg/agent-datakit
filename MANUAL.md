@@ -1,19 +1,19 @@
-# AgentOS User Manual
+# AgentFS User Manual
 
-AgentOS provides a secure sandboxed environment for running AI agents with SQLite-backed filesystem storage. It enables agents to interact with files while maintaining complete isolation, auditability, and control.
+AgentFS provides a secure sandboxed environment for running AI agents with SQLite-backed filesystem storage. It enables agents to interact with files while maintaining complete isolation, auditability, and control.
 
 ## Overview
 
-AgentOS consists of three main components:
+AgentFS consists of three main components:
 
 1. **[Agent Filesystem Specification](SPEC.md)** - Defines the SQLite-based filesystem format, including:
    - Virtual filesystem with Unix-like inode design
    - Key-value store for agent context and state
    - Tool call audit trail for debugging and analysis
 
-2. **AgentOS Tool** - Command-line tool for managing and running agents in sandboxed environments
+2. **AgentFS Tool** - Command-line tool for managing and running agents in sandboxed environments
 
-3. **AgentOS SDK** - TypeScript/JavaScript SDK for building agents that work with AgentOS
+3. **AgentFS SDK** - TypeScript/JavaScript SDK for building agents that work with AgentFS
 
 ## Quick Start
 
@@ -22,21 +22,21 @@ AgentOS consists of three main components:
 Create a new SQLite-based agent filesystem:
 
 ```bash
-$ agentos init
+$ agentfs init
 Created agent filesystem: agent.db
 ```
 
 You can specify a custom filename:
 
 ```bash
-$ agentos init myagent.db
+$ agentfs init myagent.db
 Created agent filesystem: myagent.db
 ```
 
 Use `--force` to overwrite an existing file:
 
 ```bash
-$ agentos init --force agent.db
+$ agentfs init --force agent.db
 Created agent filesystem: agent.db
 ```
 
@@ -45,8 +45,8 @@ Created agent filesystem: agent.db
 Start any program with the agent filesystem mounted at `/agent`:
 
 ```bash
-$ agentos run /bin/bash
-Welcome to AgentOS!
+$ agentfs run /bin/bash
+Welcome to AgentFS!
 
 The following mount points are sandboxed:
  - /agent -> agent.db (sqlite)
@@ -62,26 +62,26 @@ $ exit
 List files in the agent filesystem:
 
 ```bash
-$ agentos fs ls
+$ agentfs fs ls
 f hello.txt
 ```
 
 Display file contents:
 
 ```bash
-$ agentos fs cat hello.txt
+$ agentfs fs cat hello.txt
 hello, agent
 ```
 
-## AgentOS Tool Reference
+## AgentFS Tool Reference
 
-### `agentos init`
+### `agentfs init`
 
 Initialize a new agent filesystem.
 
 **Usage:**
 ```bash
-agentos init [OPTIONS] [FILENAME]
+agentfs init [OPTIONS] [FILENAME]
 ```
 
 **Arguments:**
@@ -94,13 +94,13 @@ agentos init [OPTIONS] [FILENAME]
 **Examples:**
 ```bash
 # Create agent.db in current directory
-agentos init
+agentfs init
 
 # Create with custom name
-agentos init production-agent.db
+agentfs init production-agent.db
 
 # Overwrite existing file
-agentos init --force agent.db
+agentfs init --force agent.db
 ```
 
 **What it does:**
@@ -110,13 +110,13 @@ Creates a new SQLite database with the [Agent Filesystem schema](SPEC.md), inclu
 - Key-value store table (`kv_store`)
 - Tool call tracking table (`tool_calls`)
 
-### `agentos run`
+### `agentfs run`
 
 Execute a program in the sandboxed environment.
 
 **Usage:**
 ```bash
-agentos run [OPTIONS] <COMMAND> [ARGS]...
+agentfs run [OPTIONS] <COMMAND> [ARGS]...
 ```
 
 **Arguments:**
@@ -132,78 +132,78 @@ agentos run [OPTIONS] <COMMAND> [ARGS]...
 
 Basic shell access:
 ```bash
-agentos run /bin/bash
+agentfs run /bin/bash
 ```
 
 Run a Python script:
 ```bash
-agentos run python3 agent.py
+agentfs run python3 agent.py
 ```
 
 Run with custom mount points:
 ```bash
-agentos run --mount type=bind,src=/tmp/data,dst=/data /bin/bash
+agentfs run --mount type=bind,src=/tmp/data,dst=/data /bin/bash
 ```
 
 Debug system calls with strace output:
 ```bash
-agentos run --strace python3 agent.py
+agentfs run --strace python3 agent.py
 ```
 
-### `agentos fs`
+### `agentfs fs`
 
 Perform filesystem operations on the agent database from outside the sandbox.
 
 **Usage:**
 ```bash
-agentos fs <COMMAND>
+agentfs fs <COMMAND>
 ```
 
 **Commands:**
 - `ls` - List files in the filesystem
 - `cat` - Display file contents
 
-#### `agentos fs ls`
+#### `agentfs fs ls`
 
 List files and directories in the agent filesystem.
 
 **Usage:**
 ```bash
-agentos fs ls [PATH]
+agentfs fs ls [PATH]
 ```
 
 **Examples:**
 ```bash
 # List root directory
-agentos fs ls
+agentfs fs ls
 
 # List subdirectory
-agentos fs ls /artifacts
+agentfs fs ls /artifacts
 ```
 
 **Output format:**
 - `f <name>` - Regular file
 - `d <name>` - Directory
 
-#### `agentos fs cat`
+#### `agentfs fs cat`
 
 Display the contents of a file in the agent filesystem.
 
 **Usage:**
 ```bash
-agentos fs cat <PATH>
+agentfs fs cat <PATH>
 ```
 
 **Examples:**
 ```bash
 # Display file contents
-agentos fs cat hello.txt
+agentfs fs cat hello.txt
 
 # Display file in subdirectory
-agentos fs cat /artifacts/report.txt
+agentfs fs cat /artifacts/report.txt
 ```
 
-## How AgentOS Works
+## How AgentFS Works
 
 ### Architecture
 
@@ -211,7 +211,7 @@ agentos fs cat /artifacts/report.txt
 ┌─────────────────────────────────────────┐
 │         Agent Application               │
 ├─────────────────────────────────────────┤
-│      AgentOS Sandbox (Hermit)           │
+│      AgentFS Sandbox (Hermit)           │
 │   Filesystem Interception Layer         │
 ├─────────────────────────────────────────┤
 │       /agent mount point                │
@@ -223,7 +223,7 @@ agentos fs cat /artifacts/report.txt
 
 ### Filesystem Interception
 
-AgentOS uses [Hermit](https://github.com/facebookexperimental/hermit), a deterministic execution sandbox that intercepts all system calls. When a program running inside AgentOS attempts filesystem operations on `/agent/*`, AgentOS:
+AgentFS uses [Hermit](https://github.com/facebookexperimental/hermit), a deterministic execution sandbox that intercepts all system calls. When a program running inside AgentFS attempts filesystem operations on `/agent/*`, AgentFS:
 
 1. **Intercepts** the system call (open, read, write, etc.)
 2. **Translates** the path to a SQLite query
@@ -249,9 +249,9 @@ The agent filesystem uses a Unix-like inode design implemented in SQLite. See th
 - **ACID transactions** - Consistency guarantees
 - **Portability** - Works everywhere SQLite works
 
-## AgentOS SDK
+## AgentFS SDK
 
-The AgentOS SDK provides a TypeScript/JavaScript interface for building agents that use the agent filesystem. It offers three main APIs for working with the agent database:
+The AgentFS SDK provides a TypeScript/JavaScript interface for building agents that use the agent filesystem. It offers three main APIs for working with the agent database:
 
 - **Key-Value Store** - Simple storage for agent context, preferences, and state
 - **Filesystem** - POSIX-like file operations for reading/writing files
@@ -260,16 +260,16 @@ The AgentOS SDK provides a TypeScript/JavaScript interface for building agents t
 ### Installation
 
 ```bash
-npm install agentos-sdk
+npm install agentfs-sdk
 ```
 
 ### Quick Start
 
 ```typescript
-import { AgentOS } from 'agentos-sdk';
+import { AgentFS } from 'agentfs-sdk';
 
 // Initialize the agent store
-const agent = new AgentOS('./agent.db');
+const agent = new AgentFS('./agent.db');
 
 // Wait for initialization (optional, operations will auto-wait)
 await agent.ready();
@@ -301,13 +301,13 @@ await agent.close();
 
 ### API Reference
 
-#### AgentOS Class
+#### AgentFS Class
 
 The main class for interacting with the agent database.
 
 **Constructor:**
 ```typescript
-new AgentOS(dbPath?: string)
+new AgentFS(dbPath?: string)
 ```
 - `dbPath` - Path to the SQLite database file (default: `:memory:`)
 
@@ -454,7 +454,7 @@ const id = await agent.tools.record(
   'web_search',
   started,
   completed,
-  { query: 'AgentOS' },
+  { query: 'AgentFS' },
   { results: ['result1', 'result2'] }
 );
 
@@ -566,9 +566,9 @@ npm start
 The SDK is written in TypeScript and includes full type definitions. TypeScript users get autocomplete, type checking, and inline documentation:
 
 ```typescript
-import { AgentOS, Stats, ToolCall, ToolCallStats } from 'agentos-sdk';
+import { AgentFS, Stats, ToolCall, ToolCallStats } from 'agentfs-sdk';
 
-const agent = new AgentOS('./agent.db');
+const agent = new AgentFS('./agent.db');
 
 // Type-safe operations
 const stats: Stats = await agent.fs.stat('/file.txt');
@@ -599,7 +599,7 @@ The SDK uses [@tursodatabase/database](https://www.npmjs.com/package/@tursodatab
 
 For local SQLite:
 ```typescript
-const agent = new AgentOS('./agent.db');
+const agent = new AgentFS('./agent.db');
 ```
 
 For Turso (requires additional configuration):
@@ -610,7 +610,7 @@ const db = new Database('libsql://your-database.turso.io', {
   authToken: process.env.TURSO_AUTH_TOKEN
 });
 
-// Use db directly or pass it to AgentOS components
+// Use db directly or pass it to AgentFS components
 ```
 
 See the [Turso documentation](https://docs.turso.tech) for more details on remote databases.
@@ -623,7 +623,7 @@ You can mount both host directories and agent databases:
 
 ```bash
 # Mount agent database at /agent and host directory at /data
-agentos run \
+agentfs run \
   --mount type=bind,src=./data,dst=/data \
   /bin/bash
 ```
@@ -635,7 +635,7 @@ The default agent database (`agent.db`) is always mounted at `/agent`.
 Use `--strace` to see all intercepted system calls:
 
 ```bash
-agentos run --strace python3 script.py
+agentfs run --strace python3 script.py
 ```
 
 This shows detailed information about every filesystem operation, useful for debugging and understanding agent behavior.
@@ -697,7 +697,7 @@ See the [Agent Filesystem Specification](SPEC.md) for the complete schema.
 ## Security Considerations
 
 **Sandboxing:**
-- AgentOS intercepts filesystem operations but doesn't provide full security isolation
+- AgentFS intercepts filesystem operations but doesn't provide full security isolation
 - Programs can still make network calls, execute system commands, etc.
 - Use additional security measures (containers, VMs, network policies) for untrusted code
 
@@ -718,25 +718,25 @@ See the [Agent Filesystem Specification](SPEC.md) for the complete schema.
 
 Use `--force` to overwrite:
 ```bash
-agentos init --force agent.db
+agentfs init --force agent.db
 ```
 
 ### Program can't find files in /agent
 
-Make sure you're running the program with `agentos run`:
+Make sure you're running the program with `agentfs run`:
 ```bash
-agentos run /bin/bash
+agentfs run /bin/bash
 ```
 
 Files written to `/agent` inside the sandbox are stored in `agent.db`, not on the host filesystem.
 
 ### SQLite database is locked
 
-Only one process can write to the database at a time. Make sure you don't have multiple `agentos run` instances using the same `agent.db` file.
+Only one process can write to the database at a time. Make sure you don't have multiple `agentfs run` instances using the same `agent.db` file.
 
 ### Permission denied errors
 
-Check file permissions in the agent filesystem using `agentos fs ls -l` (once implemented) or by querying the `fs_inode` table directly.
+Check file permissions in the agent filesystem using `agentfs fs ls -l` (once implemented) or by querying the `fs_inode` table directly.
 
 ## Learn More
 

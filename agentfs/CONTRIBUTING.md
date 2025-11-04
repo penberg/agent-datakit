@@ -1,4 +1,4 @@
-# AgentOS Contributor Guide
+# AgentFS Contributor Guide
 
 ## Running Tests
 
