@@ -13,9 +13,12 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        project: [agentfs, rust-sdk]
     defaults:
       run:
-        working-directory: agentfs
+        working-directory: ${{ matrix.project }}
     steps:
     - uses: actions/checkout@v4
 
@@ -26,6 +29,7 @@ jobs:
         components: rustfmt, clippy
 
     - name: Install system dependencies
+      if: matrix.project == 'agentfs'
       run: scripts/install-deps.sh
 
     - name: Cache cargo registry
@@ -43,8 +47,8 @@ jobs:
     - name: Cache cargo build
       uses: actions/cache@v4
       with:
-        path: agentfs/target
-        key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+        path: ${{ matrix.project }}/target
+        key: ${{ runner.os }}-cargo-build-target-${{ matrix.project }}-${{ hashFiles('**/Cargo.lock') }}
 
     - name: Check formatting
       run: cargo fmt -- --check
@@ -61,9 +65,12 @@ jobs:
   check:
     name: Check
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        project: [agentfs, rust-sdk]
     defaults:
       run:
-        working-directory: agentfs
+        working-directory: ${{ matrix.project }}
     steps:
     - uses: actions/checkout@v4
 
@@ -73,6 +80,7 @@ jobs:
         toolchain: nightly
 
     - name: Install system dependencies
+      if: matrix.project == 'agentfs'
       run: scripts/install-deps.sh
 
     - name: Check
