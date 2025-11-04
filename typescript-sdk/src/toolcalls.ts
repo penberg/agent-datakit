@@ -80,11 +80,10 @@ export class ToolCalls {
     const stmt = this.db.prepare(`
       INSERT INTO tool_calls (name, parameters, status, started_at)
       VALUES (?, ?, 'pending', ?)
-      RETURNING id
     `);
 
-    const row = await stmt.get(name, serializedParams, started_at) as { id: number };
-    return row.id;
+    const result = await stmt.run(name, serializedParams, started_at);
+    return Number(result.lastInsertRowid);
   }
 
   /**
@@ -165,11 +164,10 @@ export class ToolCalls {
     const stmt = this.db.prepare(`
       INSERT INTO tool_calls (name, parameters, result, error, status, started_at, completed_at, duration_ms)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      RETURNING id
     `);
 
-    const row = await stmt.get(name, serializedParams, serializedResult, error || null, status, started_at, completed_at, duration_ms) as { id: number };
-    return row.id;
+    const result_row = await stmt.run(name, serializedParams, serializedResult, error || null, status, started_at, completed_at, duration_ms);
+    return Number(result_row.lastInsertRowid);
   }
 
   /**
@@ -263,9 +261,9 @@ export class ToolCalls {
     return {
       id: row.id,
       name: row.name,
-      parameters: row.parameters ? JSON.parse(row.parameters) : undefined,
-      result: row.result ? JSON.parse(row.result) : undefined,
-      error: row.error || undefined,
+      parameters: row.parameters !== null ? JSON.parse(row.parameters) : undefined,
+      result: row.result !== null ? JSON.parse(row.result) : undefined,
+      error: row.error !== null ? row.error : undefined,
       status: row.status as 'pending' | 'success' | 'error',
       started_at: row.started_at,
       completed_at: row.completed_at !== null ? row.completed_at : undefined,

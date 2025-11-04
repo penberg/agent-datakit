@@ -211,10 +211,9 @@ export class Filesystem {
     const stmt = this.db.prepare(`
       INSERT INTO fs_inode (mode, uid, gid, size, atime, mtime, ctime)
       VALUES (?, ?, ?, 0, ?, ?, ?)
-      RETURNING ino
     `);
-    const result = await stmt.get(mode, uid, gid, now, now, now) as { ino: number };
-    return result.ino;
+    const result = await stmt.run(mode, uid, gid, now, now, now);
+    return Number(result.lastInsertRowid);
   }
 
   /**
@@ -305,7 +304,8 @@ export class Filesystem {
     const now = Math.floor(Date.now() / 1000);
 
     // Delete existing data blocks
-    await this.db.exec(`DELETE FROM fs_data WHERE ino = ${ino}`);
+    const deleteStmt = this.db.prepare('DELETE FROM fs_data WHERE ino = ?');
+    await deleteStmt.run(ino);
 
     // Write data in chunks (for now, single chunk, but can be extended)
     const stmt = this.db.prepare(`
