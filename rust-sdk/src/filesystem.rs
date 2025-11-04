@@ -181,12 +181,40 @@ impl Filesystem {
     /// Normalize a path
     fn normalize_path(&self, path: &str) -> String {
         let normalized = path.trim_end_matches('/');
-        if normalized.is_empty() {
-            "/".to_string()
+        let normalized = if normalized.is_empty() {
+            "/"
         } else if normalized.starts_with('/') {
-            normalized.to_string()
+            normalized
         } else {
-            format!("/{}", normalized)
+            return format!("/{}", normalized);
+        };
+
+        // Handle . and .. components
+        let components: Vec<&str> = normalized.split('/').filter(|s| !s.is_empty()).collect();
+        let mut result = Vec::new();
+
+        for component in components {
+            match component {
+                "." => {
+                    // Current directory - skip it
+                    continue;
+                }
+                ".." => {
+                    // Parent directory - only pop if there is a component to pop (don't traverse above root)
+                    if !result.is_empty() {
+                        result.pop();
+                    }
+                }
+                _ => {
+                    result.push(component);
+                }
+            }
+        }
+
+        if result.is_empty() {
+            "/".to_string()
+        } else {
+            format!("/{}", result.join("/"))
         }
     }
 

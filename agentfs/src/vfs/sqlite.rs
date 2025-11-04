@@ -97,26 +97,65 @@ impl Vfs for SqliteVfs {
         true
     }
 
-    async fn open(&self, path: &Path, _flags: i32, _mode: u32) -> VfsResult<BoxedFileOps> {
+    async fn open(&self, path: &Path, flags: i32, _mode: u32) -> VfsResult<BoxedFileOps> {
         let relative_path = self.translate_to_relative(path)?;
 
-        // Read the file data using the SDK
-        let data = self
+        let stats = self
             .fs
-            .read_file(&relative_path)
+            .stat(&relative_path)
             .await
-            .map_err(|e| VfsError::Other(format!("Failed to read file: {}", e)))?
-            .ok_or(VfsError::NotFound)?;
+            .map_err(|e| VfsError::Other(format!("Failed to stat: {}", e)))?;
 
-        // Create a file ops for the virtual file
-        Ok(Arc::new(SqliteFileOps {
-            fs: self.fs.clone(),
-            path: relative_path,
-            data: Arc::new(Mutex::new(data)),
-            offset: Arc::new(Mutex::new(0)),
-            flags: Mutex::new(_flags),
-            dirty: Arc::new(Mutex::new(false)),
-        }))
+        match stats {
+            Some(stats) => {
+                if stats.is_directory() {
+                    Ok(Arc::new(SqliteDirectoryOps {
+                        fs: self.fs.clone(),
+                        path: relative_path,
+                        flags: Mutex::new(flags),
+                        entries: Arc::new(Mutex::new(None)),
+                        position: Arc::new(Mutex::new(0)),
+                    }))
+                } else {
+                    // If O_TRUNC is set, skip reading the file and use empty data
+                    let data = if flags & libc::O_TRUNC != 0 {
+                        Vec::new()
+                    } else {
+                        self.fs
+                            .read_file(&relative_path)
+                            .await
+                            .map_err(|e| VfsError::Other(format!("Failed to read file: {}", e)))?
+                            .ok_or(VfsError::NotFound)?
+                    };
+                    Ok(Arc::new(SqliteFileOps {
+                        fs: self.fs.clone(),
+                        path: relative_path,
+                        data: Arc::new(Mutex::new(data)),
+                        offset: Arc::new(Mutex::new(0)),
+                        flags: Mutex::new(flags),
+                        dirty: Arc::new(Mutex::new(flags & libc::O_TRUNC != 0)),
+                    }))
+                }
+            }
+            None => {
+                // File doesn't exist - check if O_CREAT is set
+                if flags & libc::O_CREAT != 0 {
+                    let data = Vec::new();
+
+                    Ok(Arc::new(SqliteFileOps {
+                        fs: self.fs.clone(),
+                        path: relative_path,
+                        data: Arc::new(Mutex::new(data)),
+                        offset: Arc::new(Mutex::new(0)),
+                        flags: Mutex::new(flags),
+                        dirty: Arc::new(Mutex::new(true)), // Mark as dirty so it gets written on close
+                    }))
+                } else {
+                    // File doesn't exist and O_CREAT not set
+                    Err(VfsError::NotFound)
+                }
+            }
+        }
     }
 
     async fn stat(&self, path: &Path) -> VfsResult<libc::stat> {
@@ -311,5 +350,209 @@ impl FileOps for SqliteFileOps {
     fn set_flags(&self, flags: i32) -> VfsResult<()> {
         *self.flags.lock().unwrap() = flags;
         Ok(())
+    }
+}
+
+/// Type alias for directory entry list: (inode, name, type)
+type DirEntryList = Vec<(u64, String, u8)>;
+
+/// Directory operations for SQLite VFS directories
+struct SqliteDirectoryOps {
+    fs: Arc<Filesystem>,
+    path: String,
+    flags: Mutex<i32>,
+    /// Cached directory entries
+    entries: Arc<Mutex<Option<DirEntryList>>>,
+    /// Current position in the directory listing
+    position: Arc<Mutex<usize>>,
+}
+
+#[async_trait::async_trait]
+impl FileOps for SqliteDirectoryOps {
+    async fn read(&self, _buf: &mut [u8]) -> VfsResult<usize> {
+        // Cannot read from a directory
+        Err(VfsError::Other("Is a directory".to_string()))
+    }
+
+    async fn write(&self, _buf: &[u8]) -> VfsResult<usize> {
+        // Cannot write to a directory
+        Err(VfsError::Other("Is a directory".to_string()))
+    }
+
+    async fn seek(&self, _offset: i64, _whence: i32) -> VfsResult<i64> {
+        // Cannot seek in a directory
+        Err(VfsError::Other("Is a directory".to_string()))
+    }
+
+    async fn fstat(&self) -> VfsResult<libc::stat> {
+        // Get stats from the filesystem
+        let stats = self
+            .fs
+            .stat(&self.path)
+            .await
+            .map_err(|e| VfsError::Other(format!("Failed to stat: {}", e)))?
+            .ok_or(VfsError::NotFound)?;
+
+        // Use MaybeUninit to construct libc::stat safely
+        let mut stat: std::mem::MaybeUninit<libc::stat> = std::mem::MaybeUninit::zeroed();
+        unsafe {
+            let stat_ptr = stat.as_mut_ptr();
+            (*stat_ptr).st_dev = 0;
+            (*stat_ptr).st_ino = stats.ino as u64;
+            (*stat_ptr).st_nlink = stats.nlink as u64;
+            (*stat_ptr).st_mode = stats.mode;
+            (*stat_ptr).st_uid = stats.uid;
+            (*stat_ptr).st_gid = stats.gid;
+            (*stat_ptr).st_rdev = 0;
+            (*stat_ptr).st_size = stats.size;
+            (*stat_ptr).st_blksize = 4096;
+            (*stat_ptr).st_blocks = (stats.size + 4095) / 4096;
+            (*stat_ptr).st_atime = stats.atime;
+            (*stat_ptr).st_atime_nsec = 0;
+            (*stat_ptr).st_mtime = stats.mtime;
+            (*stat_ptr).st_mtime_nsec = 0;
+            (*stat_ptr).st_ctime = stats.ctime;
+            (*stat_ptr).st_ctime_nsec = 0;
+            Ok(stat.assume_init())
+        }
+    }
+
+    async fn fsync(&self) -> VfsResult<()> {
+        // Nothing to sync for directories
+        Ok(())
+    }
+
+    async fn fdatasync(&self) -> VfsResult<()> {
+        // Nothing to sync for directories
+        Ok(())
+    }
+
+    fn fcntl(&self, cmd: i32, arg: i64) -> VfsResult<i64> {
+        match cmd {
+            libc::F_GETFL => Ok(self.get_flags() as i64),
+            libc::F_SETFL => {
+                self.set_flags(arg as i32)?;
+                Ok(0)
+            }
+            _ => Err(VfsError::Other(format!(
+                "Unsupported fcntl command: {}",
+                cmd
+            ))),
+        }
+    }
+
+    fn ioctl(&self, _request: u64, _arg: u64) -> VfsResult<i64> {
+        // Virtual directory doesn't support ioctl
+        Err(VfsError::Other("ioctl not supported".to_string()))
+    }
+
+    fn as_raw_fd(&self) -> Option<RawFd> {
+        // No real kernel FD for virtual directories
+        None
+    }
+
+    async fn close(&self) -> VfsResult<()> {
+        // Nothing to do when closing a directory
+        Ok(())
+    }
+
+    fn get_flags(&self) -> i32 {
+        *self.flags.lock().unwrap()
+    }
+
+    fn set_flags(&self, flags: i32) -> VfsResult<()> {
+        *self.flags.lock().unwrap() = flags;
+        Ok(())
+    }
+
+    async fn getdents(&self) -> VfsResult<DirEntryList> {
+        // Check if we need to populate the entries cache
+        let needs_populate = {
+            let entries_lock = self.entries.lock().unwrap();
+            entries_lock.is_none()
+        };
+
+        if needs_populate {
+            // Read directory entries from the filesystem (without holding lock)
+            let dir_entries = self
+                .fs
+                .readdir(&self.path)
+                .await
+                .map_err(|e| VfsError::Other(format!("Failed to read directory: {}", e)))?
+                .ok_or(VfsError::NotFound)?;
+
+            // Convert to the format expected by getdents64
+            let mut result = Vec::new();
+
+            // Add . and .. entries with correct inode numbers
+            // Get current directory inode
+            let current_stats = self
+                .fs
+                .stat(&self.path)
+                .await
+                .map_err(|e| VfsError::Other(format!("Failed to stat current dir: {}", e)))?
+                .ok_or(VfsError::NotFound)?;
+            let current_ino = current_stats.ino as u64;
+
+            // Get parent directory inode
+            let parent_path = if self.path == "/" {
+                "/".to_string()
+            } else {
+                Path::new(&self.path)
+                    .parent()
+                    .map(|p| p.to_str().unwrap_or("/").to_string())
+                    .unwrap_or("/".to_string())
+            };
+            let parent_stats = self
+                .fs
+                .stat(&parent_path)
+                .await
+                .map_err(|e| VfsError::Other(format!("Failed to stat parent dir: {}", e)))?
+                .ok_or(VfsError::NotFound)?;
+            let parent_ino = parent_stats.ino as u64;
+
+            result.push((current_ino, ".".to_string(), libc::DT_DIR));
+            result.push((parent_ino, "..".to_string(), libc::DT_DIR));
+
+            for name in dir_entries {
+                // Construct the full path for this entry
+                let entry_path = if self.path == "/" {
+                    format!("/{}", name)
+                } else {
+                    format!("{}/{}", self.path, name)
+                };
+
+                // Get stats to determine type and inode
+                if let Ok(Some(stats)) = self.fs.stat(&entry_path).await {
+                    let d_type = if stats.is_directory() {
+                        libc::DT_DIR
+                    } else if stats.is_symlink() {
+                        libc::DT_LNK
+                    } else {
+                        libc::DT_REG
+                    };
+                    result.push((stats.ino as u64, name, d_type));
+                }
+            }
+
+            // Store the results
+            let mut entries_lock = self.entries.lock().unwrap();
+            *entries_lock = Some(result);
+        }
+
+        // Get the current position and return entries
+        let mut position = self.position.lock().unwrap();
+        let entries_lock = self.entries.lock().unwrap();
+        let all_entries = entries_lock.as_ref().unwrap();
+
+        if *position >= all_entries.len() {
+            // No more entries - return empty to signal EOF
+            Ok(Vec::new())
+        } else {
+            // Return remaining entries and update position
+            let remaining = all_entries[*position..].to_vec();
+            *position = all_entries.len();
+            Ok(remaining)
+        }
     }
 }
