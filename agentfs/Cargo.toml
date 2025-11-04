@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+agentfs-sdk = { path = "../rust-sdk" }
 reverie = { git = "https://github.com/facebookexperimental/reverie" }
 reverie-ptrace = { git = "https://github.com/facebookexperimental/reverie" }
 reverie-process = { git = "https://github.com/facebookexperimental/reverie" }
@@ -14,7 +15,7 @@ anyhow = "1.0"
 async-trait = "0.1"
 serde = { version = "1.0", features = ["derive"] }
 libc = "0.2"
-turso = "0.2.2"
+turso = "0.3.2"
 
 [dev-dependencies]
 tempfile = "3"

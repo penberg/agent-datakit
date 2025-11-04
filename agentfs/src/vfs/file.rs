@@ -23,10 +23,10 @@ pub trait FileOps: Send + Sync {
     async fn fstat(&self) -> VfsResult<libc::stat>;
 
     /// Sync file data to storage
-    fn fsync(&self) -> VfsResult<()>;
+    async fn fsync(&self) -> VfsResult<()>;
 
     /// Sync file data (but not metadata) to storage
-    fn fdatasync(&self) -> VfsResult<()>;
+    async fn fdatasync(&self) -> VfsResult<()>;
 
     /// Perform file control operations
     fn fcntl(&self, cmd: i32, arg: i64) -> VfsResult<i64>;
@@ -41,7 +41,7 @@ pub trait FileOps: Send + Sync {
     fn as_raw_fd(&self) -> Option<RawFd>;
 
     /// Close the file
-    fn close(&self) -> VfsResult<()>;
+    async fn close(&self) -> VfsResult<()>;
 
     /// Get flags associated with this file descriptor
     fn get_flags(&self) -> i32;

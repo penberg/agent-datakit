@@ -236,7 +236,7 @@ pub async fn handle_close<T: Guest<Sandbox>>(
             return Ok(Some(result));
         } else {
             // Virtualized file - just call close on the FileOps
-            entry.file_ops.close().ok();
+            entry.file_ops.close().await.ok();
             return Ok(Some(0)); // Success
         }
     }
@@ -327,7 +327,7 @@ pub async fn handle_dup2<T: Guest<Sandbox>>(
                         .await?;
                 } else {
                     // Close the FileOps if it's a virtualized file
-                    old_entry.file_ops.close().ok();
+                    old_entry.file_ops.close().await.ok();
                 }
             }
 
@@ -339,7 +339,7 @@ pub async fn handle_dup2<T: Guest<Sandbox>>(
         } else {
             // Virtualized file - just clone the FileOps
             if let Some(old_entry) = old_new_entry {
-                old_entry.file_ops.close().ok();
+                old_entry.file_ops.close().await.ok();
             }
             let _ = fd_table.allocate_at(new_vfd, old_entry.file_ops.clone(), 0);
         }
@@ -392,7 +392,7 @@ pub async fn handle_dup3<T: Guest<Sandbox>>(
                         ))
                         .await?;
                 } else {
-                    old_entry.file_ops.close().ok();
+                    old_entry.file_ops.close().await.ok();
                 }
             }
 
@@ -408,7 +408,7 @@ pub async fn handle_dup3<T: Guest<Sandbox>>(
         } else {
             // Virtualized file - just clone the FileOps
             if let Some(old_entry) = old_new_entry {
-                old_entry.file_ops.close().ok();
+                old_entry.file_ops.close().await.ok();
             }
             let _ = fd_table.allocate_at(new_vfd, old_entry.file_ops.clone(), flags.bits());
         }

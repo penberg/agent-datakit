@@ -173,7 +173,7 @@ impl FileOps for PassthroughFile {
         }
     }
 
-    fn fsync(&self) -> VfsResult<()> {
+    async fn fsync(&self) -> VfsResult<()> {
         let result = unsafe { libc::fsync(self.fd) };
         if result < 0 {
             Err(VfsError::IoError(std::io::Error::last_os_error()))
@@ -182,7 +182,7 @@ impl FileOps for PassthroughFile {
         }
     }
 
-    fn fdatasync(&self) -> VfsResult<()> {
+    async fn fdatasync(&self) -> VfsResult<()> {
         let result = unsafe { libc::fdatasync(self.fd) };
         if result < 0 {
             Err(VfsError::IoError(std::io::Error::last_os_error()))
@@ -213,7 +213,7 @@ impl FileOps for PassthroughFile {
         Some(self.fd)
     }
 
-    fn close(&self) -> VfsResult<()> {
+    async fn close(&self) -> VfsResult<()> {
         let result = unsafe { libc::close(self.fd) };
         if result < 0 {
             Err(VfsError::IoError(std::io::Error::last_os_error()))
