@@ -6,9 +6,10 @@ export interface ToolCall {
   parameters?: any;
   result?: any;
   error?: string;
+  status: 'pending' | 'success' | 'error';
   started_at: number;
-  completed_at: number;
-  duration_ms: number;
+  completed_at?: number;
+  duration_ms?: number;
 }
 
 export interface ToolCallStats {
@@ -47,9 +48,10 @@ export class ToolCalls {
         parameters TEXT,
         result TEXT,
         error TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
         started_at INTEGER NOT NULL,
-        completed_at INTEGER NOT NULL,
-        duration_ms INTEGER NOT NULL
+        completed_at INTEGER,
+        duration_ms INTEGER
       )
     `);
 
@@ -63,6 +65,81 @@ export class ToolCalls {
       CREATE INDEX IF NOT EXISTS idx_tool_calls_started_at
       ON tool_calls(started_at)
     `);
+  }
+
+  /**
+   * Start a new tool call and mark it as pending
+   * Returns the ID of the created tool call record
+   */
+  async start(name: string, parameters?: any): Promise<number> {
+    await this.initialized;
+
+    const serializedParams = parameters !== undefined ? JSON.stringify(parameters) : null;
+    const started_at = Math.floor(Date.now() / 1000);
+
+    const stmt = this.db.prepare(`
+      INSERT INTO tool_calls (name, parameters, status, started_at)
+      VALUES (?, ?, 'pending', ?)
+      RETURNING id
+    `);
+
+    const row = await stmt.get(name, serializedParams, started_at) as { id: number };
+    return row.id;
+  }
+
+  /**
+   * Mark a tool call as successful
+   */
+  async success(id: number, result?: any): Promise<void> {
+    await this.initialized;
+
+    const serializedResult = result !== undefined ? JSON.stringify(result) : null;
+    const completed_at = Math.floor(Date.now() / 1000);
+
+    // Get the started_at time to calculate duration
+    const getStmt = this.db.prepare('SELECT started_at FROM tool_calls WHERE id = ?');
+    const row = await getStmt.get(id) as { started_at: number } | undefined;
+
+    if (!row) {
+      throw new Error(`Tool call with ID ${id} not found`);
+    }
+
+    const duration_ms = (completed_at - row.started_at) * 1000;
+
+    const updateStmt = this.db.prepare(`
+      UPDATE tool_calls
+      SET status = 'success', result = ?, completed_at = ?, duration_ms = ?
+      WHERE id = ?
+    `);
+
+    await updateStmt.run(serializedResult, completed_at, duration_ms, id);
+  }
+
+  /**
+   * Mark a tool call as failed
+   */
+  async error(id: number, error: string): Promise<void> {
+    await this.initialized;
+
+    const completed_at = Math.floor(Date.now() / 1000);
+
+    // Get the started_at time to calculate duration
+    const getStmt = this.db.prepare('SELECT started_at FROM tool_calls WHERE id = ?');
+    const row = await getStmt.get(id) as { started_at: number } | undefined;
+
+    if (!row) {
+      throw new Error(`Tool call with ID ${id} not found`);
+    }
+
+    const duration_ms = (completed_at - row.started_at) * 1000;
+
+    const updateStmt = this.db.prepare(`
+      UPDATE tool_calls
+      SET status = 'error', error = ?, completed_at = ?, duration_ms = ?
+      WHERE id = ?
+    `);
+
+    await updateStmt.run(error, completed_at, duration_ms, id);
   }
 
   /**
@@ -83,14 +160,15 @@ export class ToolCalls {
     const serializedParams = parameters !== undefined ? JSON.stringify(parameters) : null;
     const serializedResult = result !== undefined ? JSON.stringify(result) : null;
     const duration_ms = (completed_at - started_at) * 1000;
+    const status = error ? 'error' : 'success';
 
     const stmt = this.db.prepare(`
-      INSERT INTO tool_calls (name, parameters, result, error, started_at, completed_at, duration_ms)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO tool_calls (name, parameters, result, error, status, started_at, completed_at, duration_ms)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       RETURNING id
     `);
 
-    const row = await stmt.get(name, serializedParams, serializedResult, error || null, started_at, completed_at, duration_ms) as { id: number };
+    const row = await stmt.get(name, serializedParams, serializedResult, error || null, status, started_at, completed_at, duration_ms) as { id: number };
     return row.id;
   }
 
@@ -150,6 +228,7 @@ export class ToolCalls {
 
   /**
    * Get performance statistics for all tools
+   * Only includes completed calls (success or failed), not pending ones
    */
   async getStats(): Promise<ToolCallStats[]> {
     await this.initialized;
@@ -158,10 +237,11 @@ export class ToolCalls {
       SELECT
         name,
         COUNT(*) as total_calls,
-        SUM(CASE WHEN error IS NULL THEN 1 ELSE 0 END) as successful,
-        SUM(CASE WHEN error IS NOT NULL THEN 1 ELSE 0 END) as failed,
+        SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as successful,
+        SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as failed,
         AVG(duration_ms) as avg_duration_ms
       FROM tool_calls
+      WHERE status != 'pending'
       GROUP BY name
       ORDER BY total_calls DESC
     `);
@@ -186,9 +266,10 @@ export class ToolCalls {
       parameters: row.parameters ? JSON.parse(row.parameters) : undefined,
       result: row.result ? JSON.parse(row.result) : undefined,
       error: row.error || undefined,
+      status: row.status as 'pending' | 'success' | 'error',
       started_at: row.started_at,
-      completed_at: row.completed_at,
-      duration_ms: row.duration_ms,
+      completed_at: row.completed_at !== null ? row.completed_at : undefined,
+      duration_ms: row.duration_ms !== null ? row.duration_ms : undefined,
     };
   }
 
