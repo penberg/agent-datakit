@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        project: [agentfs, rust-sdk]
+        project: [agentfs, sdk/rust]
     defaults:
       run:
         working-directory: ${{ matrix.project }}
@@ -71,7 +71,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        project: [agentfs, rust-sdk]
+        project: [agentfs, sdk/rust]
     defaults:
       run:
         working-directory: ${{ matrix.project }}

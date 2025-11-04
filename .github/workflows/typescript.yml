@@ -16,7 +16,7 @@ jobs:
         node-version: [20, 22]
     defaults:
       run:
-        working-directory: typescript-sdk
+        working-directory: sdk/typescript
     steps:
     - uses: actions/checkout@v4
 
@@ -25,7 +25,7 @@ jobs:
       with:
         node-version: ${{ matrix.node-version }}
         cache: 'npm'
-        cache-dependency-path: typescript-sdk/package-lock.json
+        cache-dependency-path: sdk/typescript/package-lock.json
 
     - name: Install dependencies
       run: npm ci
@@ -41,7 +41,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: typescript-sdk
+        working-directory: sdk/typescript
     steps:
     - uses: actions/checkout@v4
 
@@ -50,7 +50,7 @@ jobs:
       with:
         node-version: 20
         cache: 'npm'
-        cache-dependency-path: typescript-sdk/package-lock.json
+        cache-dependency-path: sdk/typescript/package-lock.json
 
     - name: Install dependencies
       run: npm ci
