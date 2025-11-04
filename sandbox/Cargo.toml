@@ -1,18 +1,19 @@
 [package]
-name = "agentfs"
+name = "agentfs-sandbox"
 version = "0.1.0"
 edition = "2021"
 
-[[bin]]
-name = "agentfs"
-path = "src/main.rs"
-
 [dependencies]
-agentfs-sandbox = { path = "../sandbox" }
+agentfs-sdk = { path = "../rust-sdk" }
 reverie = { git = "https://github.com/facebookexperimental/reverie" }
 reverie-ptrace = { git = "https://github.com/facebookexperimental/reverie" }
 reverie-process = { git = "https://github.com/facebookexperimental/reverie" }
+reverie-util = { git = "https://github.com/facebookexperimental/reverie" }
 tokio = { version = "1", features = ["full"] }
-clap = { version = "4", features = ["derive"] }
 anyhow = "1.0"
-turso = "0.3.2"
+async-trait = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
