@@ -1,4 +1,4 @@
-use agentfs::{
+use agentfs_sandbox::{
     init_fd_tables, init_mount_table, init_strace, MountConfig, MountTable, PassthroughVfs,
     Sandbox, SqliteVfs,
 };
@@ -500,7 +500,7 @@ async fn main() -> Result<(), Error> {
             // If no mounts specified, add default agent.db mount at /agent
             if mounts.is_empty() {
                 mounts.push(MountConfig {
-                    mount_type: agentfs::MountType::Sqlite {
+                    mount_type: agentfs_sandbox::MountType::Sqlite {
                         src: PathBuf::from("agent.db"),
                     },
                     dst: PathBuf::from("/agent"),
@@ -510,7 +510,7 @@ async fn main() -> Result<(), Error> {
             eprintln!("The following mount points are sandboxed:");
             for mount_config in &mounts {
                 match &mount_config.mount_type {
-                    agentfs::MountType::Bind { src } => {
+                    agentfs_sandbox::MountType::Bind { src } => {
                         eprintln!(
                             " - {} -> {} (host)",
                             mount_config.dst.display(),
@@ -522,7 +522,7 @@ async fn main() -> Result<(), Error> {
                             Arc::new(PassthroughVfs::new(src.clone(), mount_config.dst.clone()));
                         mount_table.add_mount(mount_config.dst.clone(), vfs);
                     }
-                    agentfs::MountType::Sqlite { src } => {
+                    agentfs_sandbox::MountType::Sqlite { src } => {
                         eprintln!(
                             " - {} -> {} (sqlite)",
                             mount_config.dst.display(),
