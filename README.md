@@ -18,13 +18,14 @@ At the heart of AgentFS is the [agent filesystem](SPEC.md) - a complete SQLite-b
 
 ## Components
 
-AgentFS provides three main components:
+AgentFS provides four main components:
 
-1. **[AgentFS CLI](MANUAL.md)**: Command-line tool for managing agents and running them in sandboxed environments
-2. **AgentFS SDK**: TypeScript/JavaScript SDK for building agents (see [MANUAL.md](MANUAL.md#agentfs-sdk) for full documentation)
-3. **[Agent Filesystem Specification](SPEC.md)**: Complete technical specification of the SQLite schema
+* **[CLI](MANUAL.md)** - Command-line interface for managing agents
+* **SDK** - TypeScript and Rust libraries for programmatic access
+* **Sandbox** - Secure Linux-compatible execution environment
+* **[Specification](SPEC.md)** - SQLite-based filesystem architecture
 
-## Quick Start
+## Getting Started
 
 ### Using the CLI
 
