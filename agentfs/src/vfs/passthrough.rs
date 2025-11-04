@@ -135,13 +135,8 @@ impl PassthroughFile {
 #[async_trait::async_trait]
 impl FileOps for PassthroughFile {
     async fn read(&self, buf: &mut [u8]) -> VfsResult<usize> {
-        let result = unsafe {
-            libc::read(
-                self.fd,
-                buf.as_mut_ptr() as *mut libc::c_void,
-                buf.len(),
-            )
-        };
+        let result =
+            unsafe { libc::read(self.fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
         if result < 0 {
             Err(VfsError::IoError(std::io::Error::last_os_error()))
         } else {
@@ -150,13 +145,8 @@ impl FileOps for PassthroughFile {
     }
 
     async fn write(&self, buf: &[u8]) -> VfsResult<usize> {
-        let result = unsafe {
-            libc::write(
-                self.fd,
-                buf.as_ptr() as *const libc::c_void,
-                buf.len(),
-            )
-        };
+        let result =
+            unsafe { libc::write(self.fd, buf.as_ptr() as *const libc::c_void, buf.len()) };
         if result < 0 {
             Err(VfsError::IoError(std::io::Error::last_os_error()))
         } else {

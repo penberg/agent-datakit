@@ -211,8 +211,15 @@ impl SqliteVfs {
             .await
             .map_err(|e| VfsError::Other(format!("Failed to check root existence: {}", e)))?;
 
-        let root_count: i64 = if let Some(row) = rows.next().await.map_err(|e| VfsError::Other(format!("Failed to fetch row: {}", e)))? {
-            row.get_value(0).ok().and_then(|v| v.as_integer().copied()).unwrap_or(0)
+        let root_count: i64 = if let Some(row) = rows
+            .next()
+            .await
+            .map_err(|e| VfsError::Other(format!("Failed to fetch row: {}", e)))?
+        {
+            row.get_value(0)
+                .ok()
+                .and_then(|v| v.as_integer().copied())
+                .unwrap_or(0)
         } else {
             0
         };
@@ -273,17 +280,39 @@ impl SqliteVfs {
             // WORKAROUND: Limbo has a bug with TEXT column filtering in WHERE clauses
             // (e.g., "WHERE name = 'foo'" doesn't work)
             // Query by parent_ino only and filter manually in application code
-            let query = format!("SELECT ino, name FROM fs_dentry WHERE parent_ino = {}", current_ino);
-            let mut rows = self.conn.query(&query, ()).await
+            let query = format!(
+                "SELECT ino, name FROM fs_dentry WHERE parent_ino = {}",
+                current_ino
+            );
+            let mut rows = self
+                .conn
+                .query(&query, ())
+                .await
                 .map_err(|e| VfsError::Other(format!("Failed to execute query: {}", e)))?;
 
             // Manually filter by name
             let mut found_ino: Option<i64> = None;
-            while let Some(row) = rows.next().await.map_err(|e| VfsError::Other(format!("Failed to fetch row: {}", e)))? {
-                let ino: i64 = row.get_value(0).ok().and_then(|v| v.as_integer().copied()).unwrap_or(0);
-                let name: String = row.get_value(1).ok().and_then(|v| {
-                    if let turso::Value::Text(s) = v { Some(s.clone()) } else { None }
-                }).unwrap_or_default();
+            while let Some(row) = rows
+                .next()
+                .await
+                .map_err(|e| VfsError::Other(format!("Failed to fetch row: {}", e)))?
+            {
+                let ino: i64 = row
+                    .get_value(0)
+                    .ok()
+                    .and_then(|v| v.as_integer().copied())
+                    .unwrap_or(0);
+                let name: String = row
+                    .get_value(1)
+                    .ok()
+                    .and_then(|v| {
+                        if let turso::Value::Text(s) = v {
+                            Some(s.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or_default();
 
                 if name == component {
                     found_ino = Some(ino);
@@ -343,7 +372,11 @@ impl SqliteVfs {
             .await
             .map_err(|e| VfsError::Other(format!("Failed to get inode: {}", e)))?;
 
-        let ino: i64 = if let Some(row) = rows.next().await.map_err(|e| VfsError::Other(format!("Failed to fetch row: {}", e)))? {
+        let ino: i64 = if let Some(row) = rows
+            .next()
+            .await
+            .map_err(|e| VfsError::Other(format!("Failed to fetch row: {}", e)))?
+        {
             row.get_value(0)
                 .ok()
                 .and_then(|v| v.as_integer().copied())
@@ -368,7 +401,12 @@ impl SqliteVfs {
     ///
     /// This is called from the openat syscall handler to create a SqliteFile
     /// with the correct inode.
-    pub async fn open_file(&self, path: &Path, flags: i32, mode: u32) -> VfsResult<super::file::BoxedFileOps> {
+    pub async fn open_file(
+        &self,
+        path: &Path,
+        flags: i32,
+        mode: u32,
+    ) -> VfsResult<super::file::BoxedFileOps> {
         // Try to resolve existing file or directory
         let ino = match self.resolve_path(path).await {
             Ok(ino) => ino,
@@ -425,207 +463,251 @@ const CHUNK_SIZE: usize = 65536;
 #[async_trait::async_trait]
 impl FileOps for SqliteFile {
     async fn read(&self, buf: &mut [u8]) -> VfsResult<usize> {
-            let offset = *self.offset.lock().unwrap();
-            let conn = &self.vfs.conn;
+        let offset = *self.offset.lock().unwrap();
+        let conn = &self.vfs.conn;
 
-            // Read data chunks that overlap with our read range
-            let end_offset = offset + buf.len() as i64;
+        // Read data chunks that overlap with our read range
+        let end_offset = offset + buf.len() as i64;
 
-            // WORKAROUND: Limbo parameter binding is broken, use formatted query
-            let query = format!(
+        // WORKAROUND: Limbo parameter binding is broken, use formatted query
+        let query = format!(
                 "SELECT offset, size, data FROM fs_data WHERE ino = {} AND offset < {} AND offset + size > {} ORDER BY offset",
                 self.ino, end_offset, offset
             );
 
-            let mut rows = conn
-                .query(&query, ())
-                .await
-                .map_err(|e| VfsError::Other(format!("Failed to read data: {}", e)))?;
+        let mut rows = conn
+            .query(&query, ())
+            .await
+            .map_err(|e| VfsError::Other(format!("Failed to read data: {}", e)))?;
 
-            let mut total_read = 0usize;
+        let mut total_read = 0usize;
 
-            while let Some(row) = rows.next().await.map_err(|e| VfsError::Other(format!("Failed to fetch row: {}", e)))? {
-                let chunk_offset: i64 = row
-                    .get_value(0)
-                    .ok()
-                    .and_then(|v| v.as_integer().copied())
-                    .ok_or_else(|| VfsError::Other("Invalid chunk offset".to_string()))?;
+        while let Some(row) = rows
+            .next()
+            .await
+            .map_err(|e| VfsError::Other(format!("Failed to fetch row: {}", e)))?
+        {
+            let chunk_offset: i64 = row
+                .get_value(0)
+                .ok()
+                .and_then(|v| v.as_integer().copied())
+                .ok_or_else(|| VfsError::Other("Invalid chunk offset".to_string()))?;
 
-                let _chunk_size: i64 = row
-                    .get_value(1)
-                    .ok()
-                    .and_then(|v| v.as_integer().copied())
-                    .ok_or_else(|| VfsError::Other("Invalid chunk size".to_string()))?;
+            let _chunk_size: i64 = row
+                .get_value(1)
+                .ok()
+                .and_then(|v| v.as_integer().copied())
+                .ok_or_else(|| VfsError::Other("Invalid chunk size".to_string()))?;
 
-                let chunk_data: Vec<u8> = row
-                    .get_value(2)
-                    .ok()
-                    .and_then(|v| {
-                        if let Value::Blob(b) = v {
-                            Some(b.clone())
-                        } else if let Value::Text(t) = v {
-                            // WORKAROUND: Handle TEXT as well as BLOB for compatibility
-                            Some(t.as_bytes().to_vec())
-                        } else {
-                            None
-                        }
-                    })
-                    .ok_or_else(|| VfsError::Other("Invalid chunk data".to_string()))?;
+            let chunk_data: Vec<u8> = row
+                .get_value(2)
+                .ok()
+                .and_then(|v| {
+                    if let Value::Blob(b) = v {
+                        Some(b.clone())
+                    } else if let Value::Text(t) = v {
+                        // WORKAROUND: Handle TEXT as well as BLOB for compatibility
+                        Some(t.as_bytes().to_vec())
+                    } else {
+                        None
+                    }
+                })
+                .ok_or_else(|| VfsError::Other("Invalid chunk data".to_string()))?;
 
-                // Calculate overlap
-                // IMPORTANT: Use actual chunk_data.len() instead of chunk_size from DB
-                // because TEXT->bytes conversion may differ in length
-                let actual_chunk_size = chunk_data.len() as i64;
-                let chunk_start = chunk_offset;
-                let chunk_end = chunk_offset + actual_chunk_size;
-                let read_start = offset;
-                let read_end = offset + buf.len() as i64;
+            // Calculate overlap
+            // IMPORTANT: Use actual chunk_data.len() instead of chunk_size from DB
+            // because TEXT->bytes conversion may differ in length
+            let actual_chunk_size = chunk_data.len() as i64;
+            let chunk_start = chunk_offset;
+            let chunk_end = chunk_offset + actual_chunk_size;
+            let read_start = offset;
+            let read_end = offset + buf.len() as i64;
 
-                let overlap_start = std::cmp::max(chunk_start, read_start);
-                let overlap_end = std::cmp::min(chunk_end, read_end);
+            let overlap_start = std::cmp::max(chunk_start, read_start);
+            let overlap_end = std::cmp::min(chunk_end, read_end);
 
-                if overlap_start < overlap_end {
-                    let src_offset = (overlap_start - chunk_start) as usize;
-                    let dst_offset = (overlap_start - read_start) as usize;
-                    let len = (overlap_end - overlap_start) as usize;
+            if overlap_start < overlap_end {
+                let src_offset = (overlap_start - chunk_start) as usize;
+                let dst_offset = (overlap_start - read_start) as usize;
+                let len = (overlap_end - overlap_start) as usize;
 
-                    buf[dst_offset..dst_offset + len]
-                        .copy_from_slice(&chunk_data[src_offset..src_offset + len]);
+                buf[dst_offset..dst_offset + len]
+                    .copy_from_slice(&chunk_data[src_offset..src_offset + len]);
 
-                    total_read = std::cmp::max(total_read, dst_offset + len);
-                }
+                total_read = std::cmp::max(total_read, dst_offset + len);
             }
+        }
 
-            // Update offset
-            *self.offset.lock().unwrap() += total_read as i64;
+        // Update offset
+        *self.offset.lock().unwrap() += total_read as i64;
 
-            Ok(total_read)
+        Ok(total_read)
     }
 
     async fn write(&self, buf: &[u8]) -> VfsResult<usize> {
-            let offset = *self.offset.lock().unwrap();
-            let conn = &self.vfs.conn;
+        let offset = *self.offset.lock().unwrap();
+        let conn = &self.vfs.conn;
 
-            // Write data in chunks
-            let mut written = 0usize;
-            while written < buf.len() {
-                let chunk_offset = offset + written as i64;
-                let chunk_size = std::cmp::min(CHUNK_SIZE, buf.len() - written);
-                let chunk_data = &buf[written..written + chunk_size];
+        // Write data in chunks
+        let mut written = 0usize;
+        while written < buf.len() {
+            let chunk_offset = offset + written as i64;
+            let chunk_size = std::cmp::min(CHUNK_SIZE, buf.len() - written);
+            let chunk_data = &buf[written..written + chunk_size];
 
-                // Delete existing chunk at this offset, then insert new one
-                // (turso doesn't support INSERT OR REPLACE)
-                conn.execute(
-                    "DELETE FROM fs_data WHERE ino = ? AND offset = ?",
-                    (self.ino, chunk_offset),
-                )
-                .await
-                .map_err(|e| VfsError::Other(format!("Failed to delete old chunk: {}", e)))?;
-
-                conn.execute(
-                    "INSERT INTO fs_data (ino, offset, size, data)
-                     VALUES (?, ?, ?, ?)",
-                    (self.ino, chunk_offset, chunk_size as i64, chunk_data),
-                )
-                .await
-                .map_err(|e| VfsError::Other(format!("Failed to write data: {}", e)))?;
-
-                written += chunk_size;
-            }
-
-            // Update file size and mtime
-            let new_size = offset + written as i64;
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs() as i64;
-
+            // Delete existing chunk at this offset, then insert new one
+            // (turso doesn't support INSERT OR REPLACE)
             conn.execute(
-                "UPDATE fs_inode SET size = MAX(size, ?), mtime = ? WHERE ino = ?",
-                (new_size, now, self.ino),
+                "DELETE FROM fs_data WHERE ino = ? AND offset = ?",
+                (self.ino, chunk_offset),
             )
             .await
-            .map_err(|e| VfsError::Other(format!("Failed to update inode: {}", e)))?;
+            .map_err(|e| VfsError::Other(format!("Failed to delete old chunk: {}", e)))?;
 
-            // Update offset
-            *self.offset.lock().unwrap() += written as i64;
+            conn.execute(
+                "INSERT INTO fs_data (ino, offset, size, data)
+                     VALUES (?, ?, ?, ?)",
+                (self.ino, chunk_offset, chunk_size as i64, chunk_data),
+            )
+            .await
+            .map_err(|e| VfsError::Other(format!("Failed to write data: {}", e)))?;
 
-            Ok(written)
+            written += chunk_size;
+        }
+
+        // Update file size and mtime
+        let new_size = offset + written as i64;
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+
+        conn.execute(
+            "UPDATE fs_inode SET size = MAX(size, ?), mtime = ? WHERE ino = ?",
+            (new_size, now, self.ino),
+        )
+        .await
+        .map_err(|e| VfsError::Other(format!("Failed to update inode: {}", e)))?;
+
+        // Update offset
+        *self.offset.lock().unwrap() += written as i64;
+
+        Ok(written)
     }
 
     async fn seek(&self, offset: i64, whence: i32) -> VfsResult<i64> {
-            let current = *self.offset.lock().unwrap();
+        let current = *self.offset.lock().unwrap();
 
-            let new_offset = match whence {
-                libc::SEEK_SET => offset,
-                libc::SEEK_CUR => current + offset,
-                libc::SEEK_END => {
-                    // Get file size (drop mutex before await)
-                    let mut rows = self.vfs.conn
-                        .query("SELECT size FROM fs_inode WHERE ino = ?", (self.ino,))
-                        .await
-                        .map_err(|e| VfsError::Other(format!("Failed to get file size: {}", e)))?;
+        let new_offset = match whence {
+            libc::SEEK_SET => offset,
+            libc::SEEK_CUR => current + offset,
+            libc::SEEK_END => {
+                // Get file size (drop mutex before await)
+                let mut rows = self
+                    .vfs
+                    .conn
+                    .query("SELECT size FROM fs_inode WHERE ino = ?", (self.ino,))
+                    .await
+                    .map_err(|e| VfsError::Other(format!("Failed to get file size: {}", e)))?;
 
-                    let size: i64 = if let Some(row) = rows.next().await.map_err(|e| VfsError::Other(format!("Failed to fetch row: {}", e)))? {
-                        row.get_value(0)
-                            .ok()
-                            .and_then(|v| v.as_integer().copied())
-                            .unwrap_or(0)
-                    } else {
-                        0
-                    };
+                let size: i64 = if let Some(row) = rows
+                    .next()
+                    .await
+                    .map_err(|e| VfsError::Other(format!("Failed to fetch row: {}", e)))?
+                {
+                    row.get_value(0)
+                        .ok()
+                        .and_then(|v| v.as_integer().copied())
+                        .unwrap_or(0)
+                } else {
+                    0
+                };
 
-                    size + offset
-                }
-                _ => return Err(VfsError::InvalidInput("Invalid whence".to_string())),
-            };
-
-            if new_offset < 0 {
-                return Err(VfsError::InvalidInput("Negative seek offset".to_string()));
+                size + offset
             }
+            _ => return Err(VfsError::InvalidInput("Invalid whence".to_string())),
+        };
 
-            *self.offset.lock().unwrap() = new_offset;
-            Ok(new_offset)
+        if new_offset < 0 {
+            return Err(VfsError::InvalidInput("Negative seek offset".to_string()));
+        }
+
+        *self.offset.lock().unwrap() = new_offset;
+        Ok(new_offset)
     }
 
     async fn fstat(&self) -> VfsResult<libc::stat> {
-            let mut rows = self.vfs.conn
-                .query(
-                    "SELECT mode, uid, gid, size, atime, mtime, ctime FROM fs_inode WHERE ino = ?",
-                    (self.ino,),
-                )
-                .await
-                .map_err(|e| VfsError::Other(format!("Failed to stat file: {}", e)))?;
+        let mut rows = self
+            .vfs
+            .conn
+            .query(
+                "SELECT mode, uid, gid, size, atime, mtime, ctime FROM fs_inode WHERE ino = ?",
+                (self.ino,),
+            )
+            .await
+            .map_err(|e| VfsError::Other(format!("Failed to stat file: {}", e)))?;
 
-            if let Some(row) = rows.next().await.map_err(|e| VfsError::Other(format!("Failed to fetch row: {}", e)))? {
-                let mode = row.get_value(0).ok().and_then(|v| v.as_integer().copied()).unwrap_or(0) as u32;
-                let uid = row.get_value(1).ok().and_then(|v| v.as_integer().copied()).unwrap_or(0) as u32;
-                let gid = row.get_value(2).ok().and_then(|v| v.as_integer().copied()).unwrap_or(0) as u32;
-                let size = row.get_value(3).ok().and_then(|v| v.as_integer().copied()).unwrap_or(0);
-                let atime = row.get_value(4).ok().and_then(|v| v.as_integer().copied()).unwrap_or(0);
-                let mtime = row.get_value(5).ok().and_then(|v| v.as_integer().copied()).unwrap_or(0);
-                let ctime = row.get_value(6).ok().and_then(|v| v.as_integer().copied()).unwrap_or(0);
+        if let Some(row) = rows
+            .next()
+            .await
+            .map_err(|e| VfsError::Other(format!("Failed to fetch row: {}", e)))?
+        {
+            let mode = row
+                .get_value(0)
+                .ok()
+                .and_then(|v| v.as_integer().copied())
+                .unwrap_or(0) as u32;
+            let uid = row
+                .get_value(1)
+                .ok()
+                .and_then(|v| v.as_integer().copied())
+                .unwrap_or(0) as u32;
+            let gid = row
+                .get_value(2)
+                .ok()
+                .and_then(|v| v.as_integer().copied())
+                .unwrap_or(0) as u32;
+            let size = row
+                .get_value(3)
+                .ok()
+                .and_then(|v| v.as_integer().copied())
+                .unwrap_or(0);
+            let atime = row
+                .get_value(4)
+                .ok()
+                .and_then(|v| v.as_integer().copied())
+                .unwrap_or(0);
+            let mtime = row
+                .get_value(5)
+                .ok()
+                .and_then(|v| v.as_integer().copied())
+                .unwrap_or(0);
+            let ctime = row
+                .get_value(6)
+                .ok()
+                .and_then(|v| v.as_integer().copied())
+                .unwrap_or(0);
 
-                // Use unsafe to create and initialize stat struct
-                let mut stat: libc::stat = unsafe { std::mem::zeroed() };
-                stat.st_dev = 0;
-                stat.st_ino = self.ino as u64;
-                stat.st_nlink = 1;
-                stat.st_mode = mode;
-                stat.st_uid = uid;
-                stat.st_gid = gid;
-                stat.st_rdev = 0;
-                stat.st_size = size;
-                stat.st_blksize = 4096;
-                stat.st_blocks = (size + 511) / 512;
-                stat.st_atime = atime;
-                stat.st_atime_nsec = 0;
-                stat.st_mtime = mtime;
-                stat.st_mtime_nsec = 0;
-                stat.st_ctime = ctime;
-                stat.st_ctime_nsec = 0;
+            // Use unsafe to create and initialize stat struct
+            let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+            stat.st_dev = 0;
+            stat.st_ino = self.ino as u64;
+            stat.st_nlink = 1;
+            stat.st_mode = mode;
+            stat.st_uid = uid;
+            stat.st_gid = gid;
+            stat.st_rdev = 0;
+            stat.st_size = size;
+            stat.st_blksize = 4096;
+            stat.st_blocks = (size + 511) / 512;
+            stat.st_atime = atime;
+            stat.st_atime_nsec = 0;
+            stat.st_mtime = mtime;
+            stat.st_mtime_nsec = 0;
+            stat.st_ctime = ctime;
+            stat.st_ctime_nsec = 0;
 
-                Ok(stat)
+            Ok(stat)
         } else {
             Err(VfsError::NotFound)
         }
@@ -648,13 +730,18 @@ impl FileOps for SqliteFile {
                 *self.flags.lock().unwrap() = arg as i32;
                 Ok(0)
             }
-            _ => Err(VfsError::Other(format!("Unsupported fcntl command: {}", cmd))),
+            _ => Err(VfsError::Other(format!(
+                "Unsupported fcntl command: {}",
+                cmd
+            ))),
         }
     }
 
     fn ioctl(&self, _request: u64, _arg: u64) -> VfsResult<i64> {
         // Most ioctl operations are not supported on virtual files
-        Err(VfsError::Other("ioctl not supported on SQLite VFS".to_string()))
+        Err(VfsError::Other(
+            "ioctl not supported on SQLite VFS".to_string(),
+        ))
     }
 
     fn as_raw_fd(&self) -> Option<RawFd> {
@@ -689,7 +776,9 @@ impl FileOps for SqliteFile {
         }
 
         // Query directory entries for this inode (mutex dropped)
-        let mut rows = self.vfs.conn
+        let mut rows = self
+            .vfs
+            .conn
             .query(
                 "SELECT d.ino, d.name, i.mode FROM fs_dentry d
                  JOIN fs_inode i ON d.ino = i.ino
@@ -706,16 +795,32 @@ impl FileOps for SqliteFile {
         entries.push((self.ino as u64, ".".to_string(), libc::DT_DIR));
         entries.push((self.ino as u64, "..".to_string(), libc::DT_DIR)); // TODO: Get real parent ino
 
-        while let Some(row) = rows.next().await.map_err(|e| VfsError::Other(format!("Failed to fetch row: {}", e)))? {
-            let ino = row.get_value(0).ok().and_then(|v| v.as_integer().copied()).unwrap_or(0) as u64;
-            let name = row.get_value(1).ok().and_then(|v| {
-                if let turso::Value::Text(s) = v {
-                    Some(s.clone())
-                } else {
-                    None
-                }
-            }).unwrap_or_default();
-            let mode = row.get_value(2).ok().and_then(|v| v.as_integer().copied()).unwrap_or(0) as u32;
+        while let Some(row) = rows
+            .next()
+            .await
+            .map_err(|e| VfsError::Other(format!("Failed to fetch row: {}", e)))?
+        {
+            let ino = row
+                .get_value(0)
+                .ok()
+                .and_then(|v| v.as_integer().copied())
+                .unwrap_or(0) as u64;
+            let name = row
+                .get_value(1)
+                .ok()
+                .and_then(|v| {
+                    if let turso::Value::Text(s) = v {
+                        Some(s.clone())
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_default();
+            let mode = row
+                .get_value(2)
+                .ok()
+                .and_then(|v| v.as_integer().copied())
+                .unwrap_or(0) as u32;
 
             // Determine file type from mode
             let d_type = match mode & S_IFMT {
@@ -772,7 +877,12 @@ impl Vfs for SqliteVfs {
         true
     }
 
-    async fn open(&self, path: &Path, flags: i32, mode: u32) -> super::VfsResult<super::file::BoxedFileOps> {
+    async fn open(
+        &self,
+        path: &Path,
+        flags: i32,
+        mode: u32,
+    ) -> super::VfsResult<super::file::BoxedFileOps> {
         self.open_file(path, flags, mode).await
     }
 
@@ -781,7 +891,8 @@ impl Vfs for SqliteVfs {
         let ino = self.resolve_path(path).await?;
 
         // Query the inode metadata
-        let mut rows = self.conn
+        let mut rows = self
+            .conn
             .query(
                 "SELECT mode, uid, gid, size, atime, mtime, ctime FROM fs_inode WHERE ino = ?",
                 (ino,),
@@ -789,14 +900,46 @@ impl Vfs for SqliteVfs {
             .await
             .map_err(|e| super::VfsError::Other(format!("Failed to stat file: {}", e)))?;
 
-        if let Some(row) = rows.next().await.map_err(|e| super::VfsError::Other(format!("Failed to fetch row: {}", e)))? {
-            let mode = row.get_value(0).ok().and_then(|v| v.as_integer().copied()).unwrap_or(0) as u32;
-            let uid = row.get_value(1).ok().and_then(|v| v.as_integer().copied()).unwrap_or(0) as u32;
-            let gid = row.get_value(2).ok().and_then(|v| v.as_integer().copied()).unwrap_or(0) as u32;
-            let size = row.get_value(3).ok().and_then(|v| v.as_integer().copied()).unwrap_or(0);
-            let atime = row.get_value(4).ok().and_then(|v| v.as_integer().copied()).unwrap_or(0);
-            let mtime = row.get_value(5).ok().and_then(|v| v.as_integer().copied()).unwrap_or(0);
-            let ctime = row.get_value(6).ok().and_then(|v| v.as_integer().copied()).unwrap_or(0);
+        if let Some(row) = rows
+            .next()
+            .await
+            .map_err(|e| super::VfsError::Other(format!("Failed to fetch row: {}", e)))?
+        {
+            let mode = row
+                .get_value(0)
+                .ok()
+                .and_then(|v| v.as_integer().copied())
+                .unwrap_or(0) as u32;
+            let uid = row
+                .get_value(1)
+                .ok()
+                .and_then(|v| v.as_integer().copied())
+                .unwrap_or(0) as u32;
+            let gid = row
+                .get_value(2)
+                .ok()
+                .and_then(|v| v.as_integer().copied())
+                .unwrap_or(0) as u32;
+            let size = row
+                .get_value(3)
+                .ok()
+                .and_then(|v| v.as_integer().copied())
+                .unwrap_or(0);
+            let atime = row
+                .get_value(4)
+                .ok()
+                .and_then(|v| v.as_integer().copied())
+                .unwrap_or(0);
+            let mtime = row
+                .get_value(5)
+                .ok()
+                .and_then(|v| v.as_integer().copied())
+                .unwrap_or(0);
+            let ctime = row
+                .get_value(6)
+                .ok()
+                .and_then(|v| v.as_integer().copied())
+                .unwrap_or(0);
 
             // Create stat struct
             let mut stat: libc::stat = unsafe { std::mem::zeroed() };
@@ -846,7 +989,10 @@ mod tests {
             .unwrap();
 
         let root_count: i64 = if let Some(row) = rows.next().await.unwrap() {
-            row.get_value(0).ok().and_then(|v| v.as_integer().copied()).unwrap_or(0)
+            row.get_value(0)
+                .ok()
+                .and_then(|v| v.as_integer().copied())
+                .unwrap_or(0)
         } else {
             0
         };
@@ -865,10 +1011,7 @@ mod tests {
 
         let result = vfs.translate_path(Path::new("/agent/test.txt"));
         assert!(result.is_ok());
-        assert!(result
-            .unwrap()
-            .to_string_lossy()
-            .contains("__sqlite_vfs__"));
+        assert!(result.unwrap().to_string_lossy().contains("__sqlite_vfs__"));
     }
 
     #[tokio::test]

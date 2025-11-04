@@ -182,7 +182,9 @@ pub async fn dispatch_syscall<T: Guest<Sandbox>>(
             }
         }
         Syscall::Newfstatat(args) => {
-            if let Some(result) = stat::handle_newfstatat(guest, args, mount_table, fd_table).await? {
+            if let Some(result) =
+                stat::handle_newfstatat(guest, args, mount_table, fd_table).await?
+            {
                 Ok(SyscallResult::Value(result))
             } else {
                 Ok(SyscallResult::Syscall(syscall))
@@ -203,7 +205,9 @@ pub async fn dispatch_syscall<T: Guest<Sandbox>>(
             }
         }
         Syscall::Readlinkat(args) => {
-            if let Some(modified) = stat::handle_readlinkat(guest, args, mount_table, fd_table).await? {
+            if let Some(modified) =
+                stat::handle_readlinkat(guest, args, mount_table, fd_table).await?
+            {
                 Ok(SyscallResult::Syscall(modified))
             } else {
                 Ok(SyscallResult::Syscall(syscall))
@@ -429,7 +433,9 @@ pub async fn dispatch_syscall<T: Guest<Sandbox>>(
             match *num {
                 Sysno::rseq => Ok(SyscallResult::Syscall(syscall)), // rseq - passthrough
                 Sysno::faccessat2 => {
-                    if let Some(result) = file::handle_faccessat2(guest, args, mount_table, fd_table).await? {
+                    if let Some(result) =
+                        file::handle_faccessat2(guest, args, mount_table, fd_table).await?
+                    {
                         Ok(SyscallResult::Value(result))
                     } else {
                         Ok(SyscallResult::Syscall(syscall))

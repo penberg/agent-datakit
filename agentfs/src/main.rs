@@ -89,18 +89,14 @@ async fn init_database(db_path: &Path, force: bool) -> AnyhowResult<()> {
         );
     }
 
-    let db_path_str = db_path
-        .to_str()
-        .context("Invalid database path")?;
+    let db_path_str = db_path.to_str().context("Invalid database path")?;
 
     let db = Builder::new_local(db_path_str)
         .build()
         .await
         .context("Failed to build database")?;
 
-    let conn = db
-        .connect()
-        .context("Failed to connect to database")?;
+    let conn = db.connect().context("Failed to connect to database")?;
 
     // Create fs_inode table
     conn.execute(
@@ -248,11 +244,7 @@ async fn init_database(db_path: &Path, force: bool) -> AnyhowResult<()> {
         .await
         .context("Failed to check root existence")?;
 
-    let root_count: i64 = if let Some(row) = rows
-        .next()
-        .await
-        .context("Failed to fetch row")?
-    {
+    let root_count: i64 = if let Some(row) = rows.next().await.context("Failed to fetch row")? {
         row.get_value(0)
             .ok()
             .and_then(|v| v.as_integer().copied())
@@ -283,18 +275,14 @@ async fn ls_filesystem(db_path: &Path, path: &str) -> AnyhowResult<()> {
         anyhow::bail!("Filesystem '{}' does not exist", db_path.display());
     }
 
-    let db_path_str = db_path
-        .to_str()
-        .context("Invalid filesystem path")?;
+    let db_path_str = db_path.to_str().context("Invalid filesystem path")?;
 
     let db = Builder::new_local(db_path_str)
         .build()
         .await
         .context("Failed to open filesystem")?;
 
-    let conn = db
-        .connect()
-        .context("Failed to connect to filesystem")?;
+    let conn = db.connect().context("Failed to connect to filesystem")?;
 
     const ROOT_INO: i64 = 1;
 
@@ -348,11 +336,7 @@ async fn ls_filesystem(db_path: &Path, path: &str) -> AnyhowResult<()> {
         const S_IFMT: u32 = 0o170000;
         const S_IFDIR: u32 = 0o040000;
 
-        let type_char = if mode & S_IFMT == S_IFDIR {
-            'd'
-        } else {
-            'f'
-        };
+        let type_char = if mode & S_IFMT == S_IFDIR { 'd' } else { 'f' };
 
         println!("{} {}", type_char, name);
     }
@@ -366,23 +350,23 @@ async fn cat_filesystem(db_path: &Path, path: &str) -> AnyhowResult<()> {
         anyhow::bail!("Filesystem '{}' does not exist", db_path.display());
     }
 
-    let db_path_str = db_path
-        .to_str()
-        .context("Invalid filesystem path")?;
+    let db_path_str = db_path.to_str().context("Invalid filesystem path")?;
 
     let db = Builder::new_local(db_path_str)
         .build()
         .await
         .context("Failed to open filesystem")?;
 
-    let conn = db
-        .connect()
-        .context("Failed to connect to filesystem")?;
+    let conn = db.connect().context("Failed to connect to filesystem")?;
 
     const ROOT_INO: i64 = 1;
 
     // Resolve the path to an inode
-    let path_components: Vec<&str> = path.trim_start_matches('/').split('/').filter(|s| !s.is_empty()).collect();
+    let path_components: Vec<&str> = path
+        .trim_start_matches('/')
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .collect();
 
     let mut current_ino = ROOT_INO;
 
@@ -466,7 +450,9 @@ async fn cat_filesystem(db_path: &Path, path: &str) -> AnyhowResult<()> {
             })
             .ok_or_else(|| anyhow::anyhow!("Invalid file data"))?;
 
-        handle.write_all(&data).context("Failed to write to stdout")?;
+        handle
+            .write_all(&data)
+            .context("Failed to write to stdout")?;
     }
 
     Ok(())
@@ -484,24 +470,22 @@ async fn main() -> Result<(), Error> {
             }
             std::process::exit(0);
         }
-        Commands::Fs { command } => {
-            match command {
-                FsCommands::Ls { filesystem, path } => {
-                    if let Err(e) = ls_filesystem(&filesystem, &path).await {
-                        eprintln!("Error: {}", e);
-                        std::process::exit(1);
-                    }
-                    std::process::exit(0);
+        Commands::Fs { command } => match command {
+            FsCommands::Ls { filesystem, path } => {
+                if let Err(e) = ls_filesystem(&filesystem, &path).await {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
                 }
-                FsCommands::Cat { filesystem, path } => {
-                    if let Err(e) = cat_filesystem(&filesystem, &path).await {
-                        eprintln!("Error: {}", e);
-                        std::process::exit(1);
-                    }
-                    std::process::exit(0);
-                }
+                std::process::exit(0);
             }
-        }
+            FsCommands::Cat { filesystem, path } => {
+                if let Err(e) = cat_filesystem(&filesystem, &path).await {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
+                std::process::exit(0);
+            }
+        },
         Commands::Run {
             mut mounts,
             strace,
@@ -534,10 +518,8 @@ async fn main() -> Result<(), Error> {
                         );
 
                         // Create a PassthroughVfs for this bind mount
-                        let vfs = Arc::new(PassthroughVfs::new(
-                            src.clone(),
-                            mount_config.dst.clone(),
-                        ));
+                        let vfs =
+                            Arc::new(PassthroughVfs::new(src.clone(), mount_config.dst.clone()));
                         mount_table.add_mount(mount_config.dst.clone(), vfs);
                     }
                     agentfs::MountType::Sqlite { src } => {

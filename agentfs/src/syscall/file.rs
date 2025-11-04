@@ -3,12 +3,12 @@ use crate::{
     syscall::translate_path,
     vfs::{fdtable::FdTable, mount::MountTable, passthrough::PassthroughFile},
 };
-use std::sync::Arc;
 use reverie::{
     syscalls::{MemoryAccess, ReadAddr, Syscall},
     Error, Guest, Stack,
 };
 use std::mem::MaybeUninit;
+use std::sync::Arc;
 
 /// The `openat` system call.
 ///
@@ -69,7 +69,8 @@ pub async fn handle_openat<T: Guest<Sandbox>>(
                 let kernel_fd = guest.inject(Syscall::Openat(new_syscall)).await?;
 
                 if kernel_fd >= 0 {
-                    let file_ops = vfs.create_file_ops(kernel_fd as i32, args.flags().bits() as i32);
+                    let file_ops =
+                        vfs.create_file_ops(kernel_fd as i32, args.flags().bits() as i32);
                     let virtual_fd = fd_table.allocate(file_ops, args.flags().bits() as i32);
                     return Ok(Some(virtual_fd as i64));
                 } else {
@@ -89,7 +90,10 @@ pub async fn handle_openat<T: Guest<Sandbox>>(
             if kernel_fd >= 0 {
                 use crate::vfs::passthrough::PassthroughFile;
                 use std::sync::Arc;
-                let file_ops = Arc::new(PassthroughFile::new(kernel_fd as i32, args.flags().bits() as i32));
+                let file_ops = Arc::new(PassthroughFile::new(
+                    kernel_fd as i32,
+                    args.flags().bits() as i32,
+                ));
                 let virtual_fd = fd_table.allocate(file_ops, args.flags().bits() as i32);
                 return Ok(Some(virtual_fd as i64));
             } else {
@@ -402,7 +406,10 @@ pub async fn handle_dup3<T: Guest<Sandbox>>(
             // Create new PassthroughFile for the duplicated kernel FD
             use crate::vfs::passthrough::PassthroughFile;
             use std::sync::Arc;
-            let file_ops = Arc::new(PassthroughFile::new(new_kernel_fd as i32, flags.bits() as i32));
+            let file_ops = Arc::new(PassthroughFile::new(
+                new_kernel_fd as i32,
+                flags.bits() as i32,
+            ));
             let _ = fd_table.allocate_at(new_vfd, file_ops, flags.bits() as i32);
         } else {
             // Virtualized file - just clone the FileOps
@@ -763,9 +770,7 @@ pub async fn handle_poll<T: Guest<Sandbox>>(
     let mut pollfds: Vec<PollFd> = Vec::with_capacity(nfds as usize);
     for i in 0..nfds {
         let offset = i as isize * std::mem::size_of::<PollFd>() as isize;
-        let pollfd: PollFd = unsafe {
-            guest.memory().read_value(fds_addr.offset(offset))?
-        };
+        let pollfd: PollFd = unsafe { guest.memory().read_value(fds_addr.offset(offset))? };
         pollfds.push(pollfd);
     }
 
@@ -791,7 +796,9 @@ pub async fn handle_poll<T: Guest<Sandbox>>(
 
         let offset = i as isize * std::mem::size_of::<PollFd>() as isize;
         unsafe {
-            guest.memory().write_value(kernel_fds_addr.offset(offset), &kernel_pollfd)?;
+            guest
+                .memory()
+                .write_value(kernel_fds_addr.offset(offset), &kernel_pollfd)?;
         }
     }
 
@@ -811,19 +818,20 @@ pub async fn handle_poll<T: Guest<Sandbox>>(
     // Read back the kernel pollfds and translate to virtual FDs
     for i in 0..nfds {
         let offset = i as isize * std::mem::size_of::<PollFd>() as isize;
-        let kernel_pollfd: PollFd = unsafe {
-            guest.memory().read_value(kernel_fds_addr.offset(offset))?
-        };
+        let kernel_pollfd: PollFd =
+            unsafe { guest.memory().read_value(kernel_fds_addr.offset(offset))? };
 
         // Write back the revents to the original pollfd array
         let virt_pollfd = PollFd {
-            fd: pollfds[i as usize].fd,  // Keep the virtual FD
+            fd: pollfds[i as usize].fd, // Keep the virtual FD
             events: pollfds[i as usize].events,
             revents: kernel_pollfd.revents,
         };
 
         unsafe {
-            guest.memory().write_value(fds_addr.offset(offset), &virt_pollfd)?;
+            guest
+                .memory()
+                .write_value(fds_addr.offset(offset), &virt_pollfd)?;
         }
     }
 
@@ -877,12 +885,12 @@ pub async fn handle_getdents64<T: Guest<Sandbox>>(
                         }
 
                         // Write linux_dirent64 structure
-                        buf.extend_from_slice(&ino.to_ne_bytes());           // d_ino (u64)
-                        buf.extend_from_slice(&offset.to_ne_bytes());        // d_off (i64)
+                        buf.extend_from_slice(&ino.to_ne_bytes()); // d_ino (u64)
+                        buf.extend_from_slice(&offset.to_ne_bytes()); // d_off (i64)
                         buf.extend_from_slice(&(reclen as u16).to_ne_bytes()); // d_reclen (u16)
-                        buf.push(d_type);                                    // d_type (u8)
-                        buf.extend_from_slice(name.as_bytes());              // d_name
-                        buf.push(0);                                         // null terminator
+                        buf.push(d_type); // d_type (u8)
+                        buf.extend_from_slice(name.as_bytes()); // d_name
+                        buf.push(0); // null terminator
 
                         // Pad to 8-byte alignment
                         while buf.len() % 8 != 0 {
@@ -946,7 +954,9 @@ pub async fn handle_fstat<T: Guest<Sandbox>>(
                                 std::mem::size_of::<libc::stat>(),
                             )
                         };
-                        guest.memory().write_exact(stat_addr.0.cast::<u8>(), stat_bytes)?;
+                        guest
+                            .memory()
+                            .write_exact(stat_addr.0.cast::<u8>(), stat_bytes)?;
                     }
                     return Ok(Some(0)); // Success
                 }
@@ -1139,17 +1149,19 @@ pub async fn handle_faccessat2<T: Guest<Sandbox>>(
     let new_path_raw: usize = unsafe { std::mem::transmute(new_path_addr) };
 
     // Build and inject the syscall with virtualized parameters
-    let result = guest.inject(Syscall::Other(
-        reverie::syscalls::Sysno::faccessat2,
-        reverie::syscalls::SyscallArgs {
-            arg0: kernel_dirfd as usize,
-            arg1: new_path_raw,
-            arg2: mode as usize,
-            arg3: flags as usize,
-            arg4: 0,
-            arg5: 0,
-        }
-    )).await?;
+    let result = guest
+        .inject(Syscall::Other(
+            reverie::syscalls::Sysno::faccessat2,
+            reverie::syscalls::SyscallArgs {
+                arg0: kernel_dirfd as usize,
+                arg1: new_path_raw,
+                arg2: mode as usize,
+                arg3: flags as usize,
+                arg4: 0,
+                arg5: 0,
+            },
+        ))
+        .await?;
 
     Ok(Some(result))
 }
@@ -1211,8 +1223,7 @@ pub async fn handle_unlink<T: Guest<Sandbox>>(
 ) -> Result<Option<Syscall>, Error> {
     if let Some(path_addr) = args.path() {
         if let Some(new_path_addr) = translate_path(guest, path_addr, mount_table).await? {
-            let new_syscall = reverie::syscalls::Unlink::new()
-                .with_path(Some(new_path_addr));
+            let new_syscall = reverie::syscalls::Unlink::new().with_path(Some(new_path_addr));
 
             return Ok(Some(Syscall::Unlink(new_syscall)));
         }
@@ -1290,8 +1301,14 @@ pub async fn handle_pipe2<T: Guest<Sandbox>>(
             // Create PassthroughFile instances for both pipe ends
             use crate::vfs::passthrough::PassthroughFile;
             use std::sync::Arc;
-            let read_file_ops = Arc::new(PassthroughFile::new(kernel_fds[0], args.flags().bits() as i32));
-            let write_file_ops = Arc::new(PassthroughFile::new(kernel_fds[1], args.flags().bits() as i32));
+            let read_file_ops = Arc::new(PassthroughFile::new(
+                kernel_fds[0],
+                args.flags().bits() as i32,
+            ));
+            let write_file_ops = Arc::new(PassthroughFile::new(
+                kernel_fds[1],
+                args.flags().bits() as i32,
+            ));
 
             // Allocate virtual FDs for both pipe ends
             let virtual_read_fd = fd_table.allocate(read_file_ops, args.flags().bits() as i32);
@@ -1301,9 +1318,13 @@ pub async fn handle_pipe2<T: Guest<Sandbox>>(
             let read_bytes = virtual_read_fd.to_ne_bytes();
             let write_bytes = virtual_write_fd.to_ne_bytes();
 
-            guest.memory().write_exact(pipefd_addr.cast(), &read_bytes)?;
+            guest
+                .memory()
+                .write_exact(pipefd_addr.cast(), &read_bytes)?;
             unsafe {
-                guest.memory().write_exact(pipefd_addr.cast::<u8>().offset(4), &write_bytes)?;
+                guest
+                    .memory()
+                    .write_exact(pipefd_addr.cast::<u8>().offset(4), &write_bytes)?;
             }
         }
     }

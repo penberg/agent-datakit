@@ -74,7 +74,9 @@ pub trait Vfs: Send + Sync {
     /// This is only called for virtual VFS implementations. For passthrough
     /// VFS, the kernel opens the file and create_file_ops is called instead.
     async fn open(&self, _path: &Path, _flags: i32, _mode: u32) -> VfsResult<BoxedFileOps> {
-        Err(VfsError::Other("open() not supported by this VFS".to_string()))
+        Err(VfsError::Other(
+            "open() not supported by this VFS".to_string(),
+        ))
     }
 
     /// Get file status directly from the VFS (for virtual filesystems)
@@ -82,7 +84,9 @@ pub trait Vfs: Send + Sync {
     /// This is only called for virtual VFS implementations. For passthrough
     /// VFS, the kernel handles stat operations.
     async fn stat(&self, _path: &Path) -> VfsResult<libc::stat> {
-        Err(VfsError::Other("stat() not supported by this VFS".to_string()))
+        Err(VfsError::Other(
+            "stat() not supported by this VFS".to_string(),
+        ))
     }
 }
 

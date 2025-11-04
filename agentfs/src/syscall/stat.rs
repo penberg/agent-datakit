@@ -1,5 +1,12 @@
-use crate::{sandbox::Sandbox, syscall::translate_path, vfs::{mount::MountTable, fdtable::FdTable}};
-use reverie::{syscalls::{MemoryAccess, ReadAddr, Syscall}, Error, Guest};
+use crate::{
+    sandbox::Sandbox,
+    syscall::translate_path,
+    vfs::{fdtable::FdTable, mount::MountTable},
+};
+use reverie::{
+    syscalls::{MemoryAccess, ReadAddr, Syscall},
+    Error, Guest,
+};
 
 /// The `statx` system call.
 ///
@@ -90,7 +97,9 @@ pub async fn handle_newfstatat<T: Guest<Sandbox>>(
                                     std::mem::size_of::<libc::stat>(),
                                 )
                             };
-                            guest.memory().write_exact(stat_addr.0.cast::<u8>(), stat_bytes)?;
+                            guest
+                                .memory()
+                                .write_exact(stat_addr.0.cast::<u8>(), stat_bytes)?;
                         }
                         return Ok(Some(0)); // Success
                     }
