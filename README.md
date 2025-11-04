@@ -16,22 +16,6 @@ AgentFS is a filesystem designed specifically for AI agents. Just as traditional
 
 At the heart of AgentFS is the [agent filesystem](SPEC.md) - a complete SQLite-based storage system for agents implemented using [Turso](https://github.com/tursodatabase/turso). It combines three essential components: a POSIX-like virtual filesystem for files and directories, a key-value store for agent state and context, and an audit trail tool for debugging and analysis. Everything an agent does - every file it creates, every piece of state it stores, every tool it invokes - lives in a single SQLite database file.
 
-## The Agent Filesystem
-
-The agent filesystem stores three types of data in SQLite:
-
-1. **Files and Directories**: A virtual filesystem with Unix-like inodes, directory entries, and file content
-2. **Key-Value Store**: Simple storage for agent context, preferences, and state
-3. **Tool Call Audit Trail**: Complete history of tool invocations, parameters, and results
-
-This design provides unique capabilities:
-
-- **Single File**: Your agent's entire state is one `.db` file - copy it, version it, share it
-- **Snapshots**: `cp agent.db backup.db` creates a complete snapshot instantly
-- **Auditability**: Query everything with SQL - find all files created in the last hour, analyze tool usage patterns, debug agent behavior
-- **Portability**: Works everywhere SQLite works - Linux, macOS, Windows, embedded devices, cloud
-- **ACID Guarantees**: Transactions ensure consistency even during crashes
-
 ## Components
 
 AgentFS provides three main components:
