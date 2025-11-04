@@ -4,6 +4,7 @@
   "description": "AgentFS SDK",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "packageManager": "npm@10.9.0",
   "scripts": {
     "build": "tsc",
     "watch": "tsc --watch",
