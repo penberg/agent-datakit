@@ -308,6 +308,7 @@ mod tests {
                 assert_eq!(src, std::fs::canonicalize("/tmp").unwrap());
                 assert_eq!(config.dst, PathBuf::from("/data"));
             }
+            MountType::Sqlite { .. } => panic!("Expected Bind mount, got Sqlite"),
         }
     }
 
@@ -323,6 +324,7 @@ mod tests {
                 assert_eq!(src, std::fs::canonicalize("/tmp").unwrap());
                 assert_eq!(config.dst, PathBuf::from("/data"));
             }
+            MountType::Sqlite { .. } => panic!("Expected Bind mount, got Sqlite"),
         }
     }
 
