@@ -22,7 +22,7 @@ AgentFS provides four main components:
 
 * **[CLI](MANUAL.md)** - Command-line interface for managing agents
 * **SDK** - TypeScript and Rust libraries for programmatic access
-* **Sandbox** - Secure Linux-compatible execution environment
+* **Sandbox** - Linux-compatible execution environment
 * **[Specification](SPEC.md)** - SQLite-based filesystem architecture
 
 ## Getting Started
