@@ -97,44 +97,64 @@ impl Vfs for SqliteVfs {
         true
     }
 
-    async fn open(&self, path: &Path, _flags: i32, _mode: u32) -> VfsResult<BoxedFileOps> {
+    async fn open(&self, path: &Path, flags: i32, _mode: u32) -> VfsResult<BoxedFileOps> {
         let relative_path = self.translate_to_relative(path)?;
 
-        // First, check if this is a file or directory
         let stats = self
             .fs
             .stat(&relative_path)
             .await
-            .map_err(|e| VfsError::Other(format!("Failed to stat: {}", e)))?
-            .ok_or(VfsError::NotFound)?;
+            .map_err(|e| VfsError::Other(format!("Failed to stat: {}", e)))?;
 
-        if stats.is_directory() {
-            // Create a directory ops for the virtual directory
-            Ok(Arc::new(SqliteDirectoryOps {
-                fs: self.fs.clone(),
-                path: relative_path,
-                flags: Mutex::new(_flags),
-                entries: Arc::new(Mutex::new(None)),
-                position: Arc::new(Mutex::new(0)),
-            }))
-        } else {
-            // Read the file data using the SDK
-            let data = self
-                .fs
-                .read_file(&relative_path)
-                .await
-                .map_err(|e| VfsError::Other(format!("Failed to read file: {}", e)))?
-                .ok_or(VfsError::NotFound)?;
+        match stats {
+            Some(stats) => {
+                if stats.is_directory() {
+                    Ok(Arc::new(SqliteDirectoryOps {
+                        fs: self.fs.clone(),
+                        path: relative_path,
+                        flags: Mutex::new(flags),
+                        entries: Arc::new(Mutex::new(None)),
+                        position: Arc::new(Mutex::new(0)),
+                    }))
+                } else {
+                    // If O_TRUNC is set, skip reading the file and use empty data
+                    let data = if flags & libc::O_TRUNC != 0 {
+                        Vec::new()
+                    } else {
+                        self.fs
+                            .read_file(&relative_path)
+                            .await
+                            .map_err(|e| VfsError::Other(format!("Failed to read file: {}", e)))?
+                            .ok_or(VfsError::NotFound)?
+                    };
+                    Ok(Arc::new(SqliteFileOps {
+                        fs: self.fs.clone(),
+                        path: relative_path,
+                        data: Arc::new(Mutex::new(data)),
+                        offset: Arc::new(Mutex::new(0)),
+                        flags: Mutex::new(flags),
+                        dirty: Arc::new(Mutex::new(flags & libc::O_TRUNC != 0)),
+                    }))
+                }
+            }
+            None => {
+                // File doesn't exist - check if O_CREAT is set
+                if flags & libc::O_CREAT != 0 {
+                    let data = Vec::new();
 
-            // Create a file ops for the virtual file
-            Ok(Arc::new(SqliteFileOps {
-                fs: self.fs.clone(),
-                path: relative_path,
-                data: Arc::new(Mutex::new(data)),
-                offset: Arc::new(Mutex::new(0)),
-                flags: Mutex::new(_flags),
-                dirty: Arc::new(Mutex::new(false)),
-            }))
+                    Ok(Arc::new(SqliteFileOps {
+                        fs: self.fs.clone(),
+                        path: relative_path,
+                        data: Arc::new(Mutex::new(data)),
+                        offset: Arc::new(Mutex::new(0)),
+                        flags: Mutex::new(flags),
+                        dirty: Arc::new(Mutex::new(true)), // Mark as dirty so it gets written on close
+                    }))
+                } else {
+                    // File doesn't exist and O_CREAT not set
+                    Err(VfsError::NotFound)
+                }
+            }
         }
     }
 
@@ -466,7 +486,10 @@ impl FileOps for SqliteDirectoryOps {
 
             // Add . and .. entries with correct inode numbers
             // Get current directory inode
-            let current_stats = self.fs.stat(&self.path).await
+            let current_stats = self
+                .fs
+                .stat(&self.path)
+                .await
                 .map_err(|e| VfsError::Other(format!("Failed to stat current dir: {}", e)))?
                 .ok_or(VfsError::NotFound)?;
             let current_ino = current_stats.ino as u64;
@@ -480,7 +503,10 @@ impl FileOps for SqliteDirectoryOps {
                     .map(|p| p.to_str().unwrap_or("/").to_string())
                     .unwrap_or("/".to_string())
             };
-            let parent_stats = self.fs.stat(&parent_path).await
+            let parent_stats = self
+                .fs
+                .stat(&parent_path)
+                .await
                 .map_err(|e| VfsError::Other(format!("Failed to stat parent dir: {}", e)))?
                 .ok_or(VfsError::NotFound)?;
             let parent_ino = parent_stats.ino as u64;
