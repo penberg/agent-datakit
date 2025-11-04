@@ -1,8 +1,9 @@
 use crate::{
     sandbox::Sandbox,
     syscall::translate_path,
-    vfs::{fdtable::FdTable, mount::MountTable},
+    vfs::{fdtable::FdTable, mount::MountTable, passthrough::PassthroughFile},
 };
+use std::sync::Arc;
 use reverie::{
     syscalls::{MemoryAccess, ReadAddr, Syscall},
     Error, Guest, Stack,
@@ -253,22 +254,31 @@ pub async fn handle_dup<T: Guest<Sandbox>>(
 ) -> Result<Option<i64>, Error> {
     let old_vfd = args.oldfd() as i32;
 
-    // Duplicate using the FdTable's built-in duplicate method
-    // This automatically handles both kernel FD duplication and FileOps cloning
-    if let Some(new_vfd) = fd_table.duplicate(old_vfd) {
-        // Get the kernel FD (if any) to actually duplicate it at the kernel level
-        if let Some(kernel_fd) = fd_table.translate(old_vfd) {
-            // Duplicate the kernel FD at the kernel level
+    // Get the old entry to preserve flags
+    if let Some(old_entry) = fd_table.get(old_vfd) {
+        // Check if this is a passthrough file with a kernel FD
+        if let Some(kernel_fd) = old_entry.kernel_fd() {
+            // Duplicate the kernel FD at the kernel level first
             let new_syscall = reverie::syscalls::Dup::new().with_oldfd(kernel_fd);
             let result = guest.inject(Syscall::Dup(new_syscall)).await?;
 
             if result < 0 {
-                // Dup failed, clean up the virtual FD we allocated
-                fd_table.deallocate(new_vfd);
                 return Ok(Some(result));
             }
+
+            // Create a new PassthroughFile with the new kernel FD
+            let new_kernel_fd = result as i32;
+            let new_file_ops = Arc::new(PassthroughFile::new(new_kernel_fd, old_entry.flags));
+
+            // Allocate a new virtual FD with the new PassthroughFile
+            let new_vfd = fd_table.allocate(new_file_ops, old_entry.flags);
+            return Ok(Some(new_vfd as i64));
+        } else {
+            // Virtualized file - just duplicate the virtual FD
+            if let Some(new_vfd) = fd_table.duplicate(old_vfd) {
+                return Ok(Some(new_vfd as i64));
+            }
         }
-        return Ok(Some(new_vfd as i64));
     }
 
     // FD not in table, let the original syscall through
