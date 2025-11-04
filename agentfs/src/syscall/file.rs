@@ -41,9 +41,9 @@ pub async fn handle_openat<T: Guest<Sandbox>>(
             if vfs.is_virtual() {
                 // For virtual VFS, open the file directly without going to the kernel
                 let mode = args.mode().map(|m| m.bits()).unwrap_or(0o644);
-                match vfs.open(&path, args.flags().bits() as i32, mode).await {
+                match vfs.open(&path, args.flags().bits(), mode).await {
                     Ok(file_ops) => {
-                        let virtual_fd = fd_table.allocate(file_ops, args.flags().bits() as i32);
+                        let virtual_fd = fd_table.allocate(file_ops, args.flags().bits());
                         return Ok(Some(virtual_fd as i64));
                     }
                     Err(e) => {
@@ -69,9 +69,8 @@ pub async fn handle_openat<T: Guest<Sandbox>>(
                 let kernel_fd = guest.inject(Syscall::Openat(new_syscall)).await?;
 
                 if kernel_fd >= 0 {
-                    let file_ops =
-                        vfs.create_file_ops(kernel_fd as i32, args.flags().bits() as i32);
-                    let virtual_fd = fd_table.allocate(file_ops, args.flags().bits() as i32);
+                    let file_ops = vfs.create_file_ops(kernel_fd as i32, args.flags().bits());
+                    let virtual_fd = fd_table.allocate(file_ops, args.flags().bits());
                     return Ok(Some(virtual_fd as i64));
                 } else {
                     return Ok(Some(kernel_fd));
@@ -90,11 +89,9 @@ pub async fn handle_openat<T: Guest<Sandbox>>(
             if kernel_fd >= 0 {
                 use crate::vfs::passthrough::PassthroughFile;
                 use std::sync::Arc;
-                let file_ops = Arc::new(PassthroughFile::new(
-                    kernel_fd as i32,
-                    args.flags().bits() as i32,
-                ));
-                let virtual_fd = fd_table.allocate(file_ops, args.flags().bits() as i32);
+                let file_ops =
+                    Arc::new(PassthroughFile::new(kernel_fd as i32, args.flags().bits()));
+                let virtual_fd = fd_table.allocate(file_ops, args.flags().bits());
                 return Ok(Some(virtual_fd as i64));
             } else {
                 return Ok(Some(kernel_fd));
@@ -113,7 +110,7 @@ pub async fn handle_read<T: Guest<Sandbox>>(
     args: &reverie::syscalls::Read,
     fd_table: &FdTable,
 ) -> Result<Option<i64>, Error> {
-    let virtual_fd = args.fd() as i32;
+    let virtual_fd = args.fd();
 
     // Get the FD entry
     if let Some(entry) = fd_table.get(virtual_fd) {
@@ -171,7 +168,7 @@ pub async fn handle_write<T: Guest<Sandbox>>(
     args: &reverie::syscalls::Write,
     fd_table: &FdTable,
 ) -> Result<Option<i64>, Error> {
-    let virtual_fd = args.fd() as i32;
+    let virtual_fd = args.fd();
 
     // Get the FD entry
     if let Some(entry) = fd_table.get(virtual_fd) {
@@ -228,7 +225,7 @@ pub async fn handle_close<T: Guest<Sandbox>>(
     args: &reverie::syscalls::Close,
     fd_table: &FdTable,
 ) -> Result<Option<i64>, Error> {
-    let virtual_fd = args.fd() as i32;
+    let virtual_fd = args.fd();
 
     // Translate and deallocate the virtual FD
     if let Some(entry) = fd_table.deallocate(virtual_fd) {
@@ -256,7 +253,7 @@ pub async fn handle_dup<T: Guest<Sandbox>>(
     args: &reverie::syscalls::Dup,
     fd_table: &FdTable,
 ) -> Result<Option<i64>, Error> {
-    let old_vfd = args.oldfd() as i32;
+    let old_vfd = args.oldfd();
 
     // Get the old entry to preserve flags
     if let Some(old_entry) = fd_table.get(old_vfd) {
@@ -297,8 +294,8 @@ pub async fn handle_dup2<T: Guest<Sandbox>>(
     args: &reverie::syscalls::Dup2,
     fd_table: &FdTable,
 ) -> Result<Option<i64>, Error> {
-    let old_vfd = args.oldfd() as i32;
-    let new_vfd = args.newfd() as i32;
+    let old_vfd = args.oldfd();
+    let new_vfd = args.newfd();
 
     // Get the entry for the old virtual FD
     if let Some(old_entry) = fd_table.get(old_vfd) {
@@ -362,8 +359,8 @@ pub async fn handle_dup3<T: Guest<Sandbox>>(
     args: &reverie::syscalls::Dup3,
     fd_table: &FdTable,
 ) -> Result<Option<i64>, Error> {
-    let old_vfd = args.oldfd() as i32;
-    let new_vfd = args.newfd() as i32;
+    let old_vfd = args.oldfd();
+    let new_vfd = args.newfd();
     let flags = args.flags();
 
     // Get the entry for the old virtual FD
@@ -406,17 +403,14 @@ pub async fn handle_dup3<T: Guest<Sandbox>>(
             // Create new PassthroughFile for the duplicated kernel FD
             use crate::vfs::passthrough::PassthroughFile;
             use std::sync::Arc;
-            let file_ops = Arc::new(PassthroughFile::new(
-                new_kernel_fd as i32,
-                flags.bits() as i32,
-            ));
-            let _ = fd_table.allocate_at(new_vfd, file_ops, flags.bits() as i32);
+            let file_ops = Arc::new(PassthroughFile::new(new_kernel_fd as i32, flags.bits()));
+            let _ = fd_table.allocate_at(new_vfd, file_ops, flags.bits());
         } else {
             // Virtualized file - just clone the FileOps
             if let Some(old_entry) = old_new_entry {
                 old_entry.file_ops.close().ok();
             }
-            let _ = fd_table.allocate_at(new_vfd, old_entry.file_ops.clone(), flags.bits() as i32);
+            let _ = fd_table.allocate_at(new_vfd, old_entry.file_ops.clone(), flags.bits());
         }
 
         Ok(Some(new_vfd as i64))
@@ -435,7 +429,7 @@ pub async fn handle_ioctl<T: Guest<Sandbox>>(
     args: &reverie::syscalls::Ioctl,
     fd_table: &FdTable,
 ) -> Result<Option<i64>, Error> {
-    let virtual_fd = args.fd() as i32;
+    let virtual_fd = args.fd();
 
     // Translate virtual FD to kernel FD
     if let Some(kernel_fd) = fd_table.translate(virtual_fd) {
@@ -469,7 +463,7 @@ pub async fn handle_fcntl<T: Guest<Sandbox>>(
 ) -> Result<Option<i64>, Error> {
     use reverie::syscalls::FcntlCmd;
 
-    let virtual_fd = args.fd() as i32;
+    let virtual_fd = args.fd();
 
     // Translate virtual FD to kernel FD
     if let Some(kernel_fd) = fd_table.translate(virtual_fd) {
@@ -506,7 +500,7 @@ pub async fn handle_fcntl<T: Guest<Sandbox>>(
                     use std::sync::Arc;
                     let file_ops = Arc::new(PassthroughFile::new(new_kernel_fd as i32, flags));
                     // Allocate virtual FD at or above the requested minimum
-                    let new_vfd = fd_table.allocate_min(arg as i32, file_ops, flags);
+                    let new_vfd = fd_table.allocate_min(arg, file_ops, flags);
                     return Ok(Some(new_vfd as i64));
                 } else {
                     // Return the error code as-is
@@ -878,7 +872,7 @@ pub async fn handle_getdents64<T: Guest<Sandbox>>(
                     for (ino, name, d_type) in entries {
                         // Calculate record length (aligned to 8 bytes)
                         let name_len = name.len() + 1; // +1 for null terminator
-                        let reclen = ((19 + name_len + 7) / 8) * 8; // 19 = sizeof(ino + off + reclen + type)
+                        let reclen = (19 + name_len).div_ceil(8) * 8; // 19 = sizeof(ino + off + reclen + type)
 
                         if buf.len() + reclen > count {
                             break; // Not enough space
@@ -928,7 +922,7 @@ pub async fn handle_fstat<T: Guest<Sandbox>>(
     args: &reverie::syscalls::Fstat,
     fd_table: &FdTable,
 ) -> Result<Option<i64>, Error> {
-    let virtual_fd = args.fd() as i32;
+    let virtual_fd = args.fd();
 
     // Get the FD entry
     if let Some(entry) = fd_table.get(virtual_fd) {
@@ -985,7 +979,7 @@ pub async fn handle_pread64<T: Guest<Sandbox>>(
     args: &reverie::syscalls::Pread64,
     fd_table: &FdTable,
 ) -> Result<Option<i64>, Error> {
-    let virtual_fd = args.fd() as i32;
+    let virtual_fd = args.fd();
 
     // Translate virtual FD to kernel FD
     if let Some(kernel_fd) = fd_table.translate(virtual_fd) {
@@ -1011,7 +1005,7 @@ pub async fn handle_pwrite64<T: Guest<Sandbox>>(
     args: &reverie::syscalls::Pwrite64,
     fd_table: &FdTable,
 ) -> Result<Option<i64>, Error> {
-    let virtual_fd = args.fd() as i32;
+    let virtual_fd = args.fd();
 
     // Translate virtual FD to kernel FD
     if let Some(kernel_fd) = fd_table.translate(virtual_fd) {
@@ -1037,7 +1031,7 @@ pub async fn handle_lseek<T: Guest<Sandbox>>(
     args: &reverie::syscalls::Lseek,
     fd_table: &FdTable,
 ) -> Result<Option<i64>, Error> {
-    let virtual_fd = args.fd() as i32;
+    let virtual_fd = args.fd();
 
     // Translate virtual FD to kernel FD
     if let Some(kernel_fd) = fd_table.translate(virtual_fd) {
@@ -1063,7 +1057,7 @@ pub async fn handle_mmap<T: Guest<Sandbox>>(
     args: &reverie::syscalls::Mmap,
     fd_table: &FdTable,
 ) -> Result<Option<i64>, Error> {
-    let virtual_fd = args.fd() as i32;
+    let virtual_fd = args.fd();
 
     // If fd is -1, it's an anonymous mapping - pass through
     if virtual_fd == -1 {
@@ -1239,7 +1233,7 @@ pub async fn handle_readv<T: Guest<Sandbox>>(
     args: &reverie::syscalls::Readv,
     fd_table: &FdTable,
 ) -> Result<Option<i64>, Error> {
-    let virtual_fd = args.fd() as i32;
+    let virtual_fd = args.fd();
 
     // Translate virtual FD to kernel FD
     if let Some(kernel_fd) = fd_table.translate(virtual_fd) {
@@ -1263,7 +1257,7 @@ pub async fn handle_writev<T: Guest<Sandbox>>(
     args: &reverie::syscalls::Writev,
     fd_table: &FdTable,
 ) -> Result<Option<i64>, Error> {
-    let virtual_fd = args.fd() as i32;
+    let virtual_fd = args.fd();
 
     // Translate virtual FD to kernel FD
     if let Some(kernel_fd) = fd_table.translate(virtual_fd) {
@@ -1301,18 +1295,12 @@ pub async fn handle_pipe2<T: Guest<Sandbox>>(
             // Create PassthroughFile instances for both pipe ends
             use crate::vfs::passthrough::PassthroughFile;
             use std::sync::Arc;
-            let read_file_ops = Arc::new(PassthroughFile::new(
-                kernel_fds[0],
-                args.flags().bits() as i32,
-            ));
-            let write_file_ops = Arc::new(PassthroughFile::new(
-                kernel_fds[1],
-                args.flags().bits() as i32,
-            ));
+            let read_file_ops = Arc::new(PassthroughFile::new(kernel_fds[0], args.flags().bits()));
+            let write_file_ops = Arc::new(PassthroughFile::new(kernel_fds[1], args.flags().bits()));
 
             // Allocate virtual FDs for both pipe ends
-            let virtual_read_fd = fd_table.allocate(read_file_ops, args.flags().bits() as i32);
-            let virtual_write_fd = fd_table.allocate(write_file_ops, args.flags().bits() as i32);
+            let virtual_read_fd = fd_table.allocate(read_file_ops, args.flags().bits());
+            let virtual_write_fd = fd_table.allocate(write_file_ops, args.flags().bits());
 
             // Write each FD individually as bytes to avoid alignment issues
             let read_bytes = virtual_read_fd.to_ne_bytes();
@@ -1349,10 +1337,10 @@ pub async fn handle_socket<T: Guest<Sandbox>>(
         use std::sync::Arc;
         let file_ops = Arc::new(PassthroughFile::new(kernel_fd as i32, 0));
         let virtual_fd = fd_table.allocate(file_ops, 0);
-        return Ok(Some(virtual_fd as i64));
+        Ok(Some(virtual_fd as i64))
     } else {
         // Return the error code as-is
-        return Ok(Some(kernel_fd));
+        Ok(Some(kernel_fd))
     }
 }
 
@@ -1364,7 +1352,7 @@ pub async fn handle_sendto<T: Guest<Sandbox>>(
     args: &reverie::syscalls::Sendto,
     fd_table: &FdTable,
 ) -> Result<Option<i64>, Error> {
-    let virtual_fd = args.fd() as i32;
+    let virtual_fd = args.fd();
 
     // Translate virtual FD to kernel FD
     if let Some(kernel_fd) = fd_table.translate(virtual_fd) {
@@ -1390,7 +1378,7 @@ pub async fn handle_connect<T: Guest<Sandbox>>(
     args: &reverie::syscalls::Connect,
     fd_table: &FdTable,
 ) -> Result<Option<i64>, Error> {
-    let virtual_fd = args.fd() as i32;
+    let virtual_fd = args.fd();
 
     // Translate virtual FD to kernel FD
     if let Some(kernel_fd) = fd_table.translate(virtual_fd) {
@@ -1414,7 +1402,7 @@ pub async fn handle_getpeername<T: Guest<Sandbox>>(
     args: &reverie::syscalls::Getpeername,
     fd_table: &FdTable,
 ) -> Result<Option<i64>, Error> {
-    let virtual_fd = args.fd() as i32;
+    let virtual_fd = args.fd();
 
     // Translate virtual FD to kernel FD
     if let Some(kernel_fd) = fd_table.translate(virtual_fd) {

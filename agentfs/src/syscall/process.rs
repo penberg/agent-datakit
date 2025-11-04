@@ -69,7 +69,7 @@ pub async fn handle_clone<T: Guest<Sandbox>>(
     parent_fd_table: &FdTable,
 ) -> Result<Option<i64>, Error> {
     // Execute the clone syscall
-    let result = guest.inject(Syscall::Clone(args.clone())).await?;
+    let result = guest.inject(Syscall::Clone(*args)).await?;
 
     if result > 0 {
         // We are in the parent process - result is the child PID/TID
@@ -105,7 +105,7 @@ pub async fn handle_clone3<T: Guest<Sandbox>>(
     parent_fd_table: &FdTable,
 ) -> Result<Option<i64>, Error> {
     // Execute the clone3 syscall
-    let result = guest.inject(Syscall::Clone3(args.clone())).await?;
+    let result = guest.inject(Syscall::Clone3(*args)).await?;
 
     if result > 0 {
         // Parent process - result is child PID/TID

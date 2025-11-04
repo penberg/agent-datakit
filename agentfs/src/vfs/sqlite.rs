@@ -334,7 +334,7 @@ impl SqliteVfs {
     /// Helper: create a new file at the given path
     async fn create_file(&self, path: &Path, mode: u32) -> VfsResult<i64> {
         // Get parent directory path and file name
-        let parent_path = path.parent().ok_or_else(|| VfsError::NotFound)?;
+        let parent_path = path.parent().ok_or(VfsError::NotFound)?;
         let file_name = path
             .file_name()
             .and_then(|n| n.to_str())

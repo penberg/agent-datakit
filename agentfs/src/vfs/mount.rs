@@ -76,7 +76,7 @@ impl MountTable {
     ) -> Option<super::file::BoxedFileOps> {
         // Try to find a matching VFS for this path
         for mount in &self.mounts {
-            if let Ok(_) = mount.vfs.translate_path(path) {
+            if mount.vfs.translate_path(path).is_ok() {
                 return Some(mount.vfs.create_file_ops(kernel_fd, flags));
             }
         }

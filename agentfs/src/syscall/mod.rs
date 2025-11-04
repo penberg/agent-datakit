@@ -78,7 +78,11 @@ pub(crate) async fn translate_path<'a, T: Guest<Sandbox>>(
     // 3. Reverie treats these pointer types as thin wrappers around raw pointers
     // 4. PathPtr is a newtype around CStrPtr, which is compatible with a char* pointer
     // 5. The guest will read this as a const char* pointer for the syscall path argument
-    Ok(Some(unsafe { std::mem::transmute(byte_addr) }))
+    Ok(Some(unsafe {
+        std::mem::transmute::<reverie::syscalls::AddrMut<'_, u8>, reverie::syscalls::PathPtr<'_>>(
+            byte_addr,
+        )
+    }))
 }
 
 /// System call dispatch.

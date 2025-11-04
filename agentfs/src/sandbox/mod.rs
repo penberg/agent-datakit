@@ -58,7 +58,7 @@ fn get_fd_table(pid: i32) -> FdTable {
     let tables = FD_TABLES.get().expect("FD tables not initialized");
     let mut tables = tables.lock().unwrap();
 
-    tables.entry(pid).or_insert_with(FdTable::new).clone()
+    tables.entry(pid).or_default().clone()
 }
 
 /// Insert an FD table for a specific process (used for fork/clone)
@@ -77,11 +77,7 @@ fn format_syscall(syscall: &Syscall) -> String {
 
 /// Format a syscall result for strace-like output
 fn format_result(value: i64) -> String {
-    if value < 0 {
-        format!("{}", value)
-    } else {
-        format!("{}", value)
-    }
+    format!("{}", value)
 }
 
 /// The Sandbox tool
