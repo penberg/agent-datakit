@@ -9,6 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 agentfs-sandbox = { path = "../sandbox" }
+agentfs-sdk = { path = "../sdk/rust" }
 reverie = { git = "https://github.com/facebookexperimental/reverie" }
 reverie-ptrace = { git = "https://github.com/facebookexperimental/reverie" }
 reverie-process = { git = "https://github.com/facebookexperimental/reverie" }

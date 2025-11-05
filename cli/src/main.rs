@@ -2,6 +2,7 @@ use agentfs_sandbox::{
     init_fd_tables, init_mount_table, init_strace, MountConfig, MountTable, PassthroughVfs,
     Sandbox, SqliteVfs,
 };
+use agentfs_sdk::AgentFS;
 use anyhow::{Context, Result as AnyhowResult};
 use clap::{Parser, Subcommand};
 use reverie::Error;
@@ -10,7 +11,6 @@ use reverie_ptrace::TracerBuilder;
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
 };
 use turso::{Builder, Value};
 
@@ -91,174 +91,11 @@ async fn init_database(db_path: &Path, force: bool) -> AnyhowResult<()> {
 
     let db_path_str = db_path.to_str().context("Invalid database path")?;
 
-    let db = Builder::new_local(db_path_str)
-        .build()
+    // Use the SDK to initialize the database - this ensures consistency
+    // with how `agentfs run` initializes the database
+    AgentFS::new(db_path_str)
         .await
-        .context("Failed to build database")?;
-
-    let conn = db.connect().context("Failed to connect to database")?;
-
-    // Create fs_inode table
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS fs_inode (
-            ino INTEGER PRIMARY KEY AUTOINCREMENT,
-            mode INTEGER NOT NULL,
-            uid INTEGER NOT NULL DEFAULT 0,
-            gid INTEGER NOT NULL DEFAULT 0,
-            size INTEGER NOT NULL DEFAULT 0,
-            atime INTEGER NOT NULL,
-            mtime INTEGER NOT NULL,
-            ctime INTEGER NOT NULL
-        )",
-        (),
-    )
-    .await
-    .context("Failed to create fs_inode table")?;
-
-    // Create fs_dentry table
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS fs_dentry (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            parent_ino INTEGER NOT NULL,
-            ino INTEGER NOT NULL,
-            UNIQUE(parent_ino, name)
-        )",
-        (),
-    )
-    .await
-    .context("Failed to create fs_dentry table")?;
-
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_fs_dentry_parent ON fs_dentry(parent_ino, name)",
-        (),
-    )
-    .await
-    .context("Failed to create fs_dentry index")?;
-
-    // Create fs_data table
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS fs_data (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            ino INTEGER NOT NULL,
-            offset INTEGER NOT NULL,
-            size INTEGER NOT NULL,
-            data BLOB NOT NULL
-        )",
-        (),
-    )
-    .await
-    .context("Failed to create fs_data table")?;
-
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_fs_data_ino_offset ON fs_data(ino, offset)",
-        (),
-    )
-    .await
-    .context("Failed to create fs_data index")?;
-
-    // Create fs_symlink table
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS fs_symlink (
-            ino INTEGER PRIMARY KEY,
-            target TEXT NOT NULL
-        )",
-        (),
-    )
-    .await
-    .context("Failed to create fs_symlink table")?;
-
-    // Create kv_store table
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS kv_store (
-            key TEXT PRIMARY KEY,
-            value TEXT NOT NULL,
-            created_at INTEGER DEFAULT (unixepoch()),
-            updated_at INTEGER DEFAULT (unixepoch())
-        )",
-        (),
-    )
-    .await
-    .context("Failed to create kv_store table")?;
-
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_kv_store_created_at ON kv_store(created_at)",
-        (),
-    )
-    .await
-    .context("Failed to create kv_store index")?;
-
-    // Create tool_calls table
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS tool_calls (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            parameters TEXT,
-            result TEXT,
-            error TEXT,
-            status TEXT NOT NULL,
-            started_at INTEGER NOT NULL,
-            completed_at INTEGER,
-            duration_ms INTEGER
-        )",
-        (),
-    )
-    .await
-    .context("Failed to create tool_calls table")?;
-
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_tool_calls_name ON tool_calls(name)",
-        (),
-    )
-    .await
-    .context("Failed to create tool_calls name index")?;
-
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_tool_calls_started_at ON tool_calls(started_at)",
-        (),
-    )
-    .await
-    .context("Failed to create tool_calls started_at index")?;
-
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_tool_calls_status ON tool_calls(status)",
-        (),
-    )
-    .await
-    .context("Failed to create tool_calls status index")?;
-
-    // Initialize root directory
-    const ROOT_INO: i64 = 1;
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as i64;
-
-    // Check if root exists
-    let mut rows = conn
-        .query("SELECT COUNT(*) FROM fs_inode WHERE ino = ?", (ROOT_INO,))
-        .await
-        .context("Failed to check root existence")?;
-
-    let root_count: i64 = if let Some(row) = rows.next().await.context("Failed to fetch row")? {
-        row.get_value(0)
-            .ok()
-            .and_then(|v| v.as_integer().copied())
-            .unwrap_or(0)
-    } else {
-        0
-    };
-
-    if root_count == 0 {
-        // Create root directory (ino=1, mode=0o040755)
-        conn.execute(
-            "INSERT INTO fs_inode (ino, mode, uid, gid, size, atime, mtime, ctime)
-             VALUES (?, ?, 0, 0, 0, ?, ?, ?)",
-            (ROOT_INO, 0o040755u32, now, now, now),
-        )
-        .await
-        .context("Failed to create root inode")?;
-    }
+        .context("Failed to initialize database")?;
 
     eprintln!("Created agent filesystem: {}", db_path.display());
 
