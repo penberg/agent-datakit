@@ -200,7 +200,7 @@ async fn init_database(db_path: &Path, force: bool) -> AnyhowResult<()> {
             parameters TEXT,
             result TEXT,
             error TEXT,
-            status TEXT NOT NULL CHECK (status IN ('pending', 'success', 'error')),
+            status TEXT NOT NULL,
             started_at INTEGER NOT NULL,
             completed_at INTEGER,
             duration_ms INTEGER
