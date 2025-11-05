@@ -122,8 +122,6 @@ async fn init_database(db_path: &Path, force: bool) -> AnyhowResult<()> {
             name TEXT NOT NULL,
             parent_ino INTEGER NOT NULL,
             ino INTEGER NOT NULL,
-            FOREIGN KEY (ino) REFERENCES fs_inode(ino) ON DELETE CASCADE,
-            FOREIGN KEY (parent_ino) REFERENCES fs_inode(ino) ON DELETE CASCADE,
             UNIQUE(parent_ino, name)
         )",
         (),
@@ -145,8 +143,7 @@ async fn init_database(db_path: &Path, force: bool) -> AnyhowResult<()> {
             ino INTEGER NOT NULL,
             offset INTEGER NOT NULL,
             size INTEGER NOT NULL,
-            data BLOB NOT NULL,
-            FOREIGN KEY (ino) REFERENCES fs_inode(ino) ON DELETE CASCADE
+            data BLOB NOT NULL
         )",
         (),
     )
@@ -164,8 +161,7 @@ async fn init_database(db_path: &Path, force: bool) -> AnyhowResult<()> {
     conn.execute(
         "CREATE TABLE IF NOT EXISTS fs_symlink (
             ino INTEGER PRIMARY KEY,
-            target TEXT NOT NULL,
-            FOREIGN KEY (ino) REFERENCES fs_inode(ino) ON DELETE CASCADE
+            target TEXT NOT NULL
         )",
         (),
     )

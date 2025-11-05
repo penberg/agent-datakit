@@ -30,9 +30,6 @@ impl KvStore {
 
     /// Initialize the database schema
     async fn initialize(&self) -> Result<()> {
-        // Enable foreign key constraints
-        self.conn.execute("PRAGMA foreign_keys = ON", ()).await?;
-
         self.conn
             .execute(
                 "CREATE TABLE IF NOT EXISTS kv_store (

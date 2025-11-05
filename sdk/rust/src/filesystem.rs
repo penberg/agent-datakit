@@ -70,9 +70,6 @@ impl Filesystem {
 
     /// Initialize the database schema
     async fn initialize(&self) -> Result<()> {
-        // Enable foreign key constraints
-        self.conn.execute("PRAGMA foreign_keys = ON", ()).await?;
-
         // Create inode table
         self.conn
             .execute(
@@ -98,8 +95,6 @@ impl Filesystem {
                     name TEXT NOT NULL,
                     parent_ino INTEGER NOT NULL,
                     ino INTEGER NOT NULL,
-                    FOREIGN KEY (ino) REFERENCES fs_inode(ino),
-                    FOREIGN KEY (parent_ino) REFERENCES fs_inode(ino),
                     UNIQUE(parent_ino, name)
                 )",
                 (),
@@ -123,8 +118,7 @@ impl Filesystem {
                     ino INTEGER NOT NULL,
                     offset INTEGER NOT NULL,
                     size INTEGER NOT NULL,
-                    data BLOB NOT NULL,
-                    FOREIGN KEY (ino) REFERENCES fs_inode(ino)
+                    data BLOB NOT NULL
                 )",
                 (),
             )
@@ -144,8 +138,7 @@ impl Filesystem {
             .execute(
                 "CREATE TABLE IF NOT EXISTS fs_symlink (
                     ino INTEGER PRIMARY KEY,
-                    target TEXT NOT NULL,
-                    FOREIGN KEY (ino) REFERENCES fs_inode(ino)
+                    target TEXT NOT NULL
                 )",
                 (),
             )
@@ -620,7 +613,7 @@ impl Filesystem {
         // Check if this was the last link to the inode
         let link_count = self.get_link_count(ino).await?;
         if link_count == 0 {
-            // Manually handle cascading deletes (Turso local doesn't support ON DELETE CASCADE)
+            // Manually handle cascading deletes since we don't use foreign keys
             // Delete data blocks
             self.conn
                 .execute("DELETE FROM fs_data WHERE ino = ?", (ino,))
