@@ -74,6 +74,7 @@ name = "agentfs"
 version = "0.1.0"
 dependencies = [
  "agentfs-sandbox",
+ "agentfs-sdk",
  "anyhow",
  "clap 4.5.51",
  "reverie",
