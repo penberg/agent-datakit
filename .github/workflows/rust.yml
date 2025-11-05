@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        project: [agentfs, sdk/rust]
+        project: [cli, sdk/rust]
     defaults:
       run:
         working-directory: ${{ matrix.project }}
@@ -29,7 +29,7 @@ jobs:
         components: rustfmt, clippy
 
     - name: Install system dependencies
-      if: matrix.project == 'agentfs'
+      if: matrix.project == 'cli'
       run: scripts/install-deps.sh
 
     - name: Cache cargo registry
@@ -63,7 +63,7 @@ jobs:
       run: cargo test --verbose
 
     - name: Run integration tests
-      if: matrix.project == 'agentfs'
+      if: matrix.project == 'cli'
       run: tests/all.sh
 
   check:
@@ -71,7 +71,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        project: [agentfs, sdk/rust]
+        project: [cli, sdk/rust]
     defaults:
       run:
         working-directory: ${{ matrix.project }}
@@ -84,7 +84,7 @@ jobs:
         toolchain: nightly
 
     - name: Install system dependencies
-      if: matrix.project == 'agentfs'
+      if: matrix.project == 'cli'
       run: scripts/install-deps.sh
 
     - name: Check
