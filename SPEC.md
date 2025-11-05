@@ -10,7 +10,7 @@ The Agent Filesystem Specification defines a SQLite schema for representing agen
 2. **Virtual Filesystem**: Stores agent artifacts (files, documents, outputs) using a Unix-like inode design with support for hard links, proper metadata, and efficient file operations
 3. **Key-Value Store**: Provides simple get/set operations for agent context, preferences, and structured state that doesn't fit into the filesystem model
 
-All timestamps in this specification use Unix epoch format (seconds since 1970-01-01 00:00:00 UTC). Implementations MUST enable foreign key constraints: `PRAGMA foreign_keys = ON`.
+All timestamps in this specification use Unix epoch format (seconds since 1970-01-01 00:00:00 UTC).
 
 ## Tool Calls
 
@@ -119,7 +119,7 @@ Implementations MAY extend the tool call schema with additional functionality:
 - Token usage tracking
 - Input/output size metrics
 
-Such extensions SHOULD use separate tables with foreign keys to maintain referential integrity.
+Such extensions SHOULD use separate tables to maintain referential integrity.
 
 ## Virtual Filesystem
 
@@ -188,8 +188,6 @@ CREATE TABLE fs_dentry (
   name TEXT NOT NULL,
   parent_ino INTEGER NOT NULL,
   ino INTEGER NOT NULL,
-  FOREIGN KEY (ino) REFERENCES fs_inode(ino) ON DELETE CASCADE,
-  FOREIGN KEY (parent_ino) REFERENCES fs_inode(ino) ON DELETE CASCADE,
   UNIQUE(parent_ino, name)
 )
 
@@ -206,7 +204,6 @@ CREATE INDEX idx_fs_dentry_parent ON fs_dentry(parent_ino, name)
 **Constraints:**
 
 - `UNIQUE(parent_ino, name)` - No duplicate names in a directory
-- Foreign keys CASCADE on delete for automatic cleanup
 
 **Notes:**
 
@@ -224,8 +221,7 @@ CREATE TABLE fs_data (
   ino INTEGER NOT NULL,
   offset INTEGER NOT NULL,
   size INTEGER NOT NULL,
-  data BLOB NOT NULL,
-  FOREIGN KEY (ino) REFERENCES fs_inode(ino) ON DELETE CASCADE
+  data BLOB NOT NULL
 )
 
 CREATE INDEX idx_fs_data_ino_offset ON fs_data(ino, offset)
@@ -252,8 +248,7 @@ Stores symbolic link targets.
 ```sql
 CREATE TABLE fs_symlink (
   ino INTEGER PRIMARY KEY,
-  target TEXT NOT NULL,
-  FOREIGN KEY (ino) REFERENCES fs_inode(ino) ON DELETE CASCADE
+  target TEXT NOT NULL
 )
 ```
 
@@ -381,7 +376,6 @@ Where `16877` = `0o040755` (directory with rwxr-xr-x permissions)
 6. Regular files MUST have mode with S_IFREG bit set
 7. File size MUST match total size of all data chunks
 8. Every inode MUST have at least one dentry (except root)
-9. Foreign key constraints MUST be enabled
 
 ### Implementation Notes
 
@@ -403,7 +397,7 @@ Implementations MAY extend the filesystem schema with additional functionality:
 - Compression metadata
 - File checksums/hashes
 
-Such extensions SHOULD use separate tables with foreign keys to maintain referential integrity.
+Such extensions SHOULD use separate tables to maintain referential integrity.
 
 ## Key-Value Data
 
@@ -486,4 +480,4 @@ Implementations MAY extend the key-value store schema with additional functional
 - TTL (time-to-live) for automatic expiration
 - Value size limits and quotas
 
-Such extensions SHOULD use separate tables with foreign keys to maintain referential integrity.
+Such extensions SHOULD use separate tables to maintain referential integrity.

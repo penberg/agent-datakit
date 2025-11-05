@@ -67,8 +67,6 @@ export class Filesystem {
         name TEXT NOT NULL,
         parent_ino INTEGER NOT NULL,
         ino INTEGER NOT NULL,
-        FOREIGN KEY (ino) REFERENCES fs_inode(ino) ON DELETE CASCADE,
-        FOREIGN KEY (parent_ino) REFERENCES fs_inode(ino) ON DELETE CASCADE,
         UNIQUE(parent_ino, name)
       )
     `);
@@ -86,8 +84,7 @@ export class Filesystem {
         ino INTEGER NOT NULL,
         offset INTEGER NOT NULL,
         size INTEGER NOT NULL,
-        data BLOB NOT NULL,
-        FOREIGN KEY (ino) REFERENCES fs_inode(ino) ON DELETE CASCADE
+        data BLOB NOT NULL
       )
     `);
 
@@ -101,8 +98,7 @@ export class Filesystem {
     await this.db.exec(`
       CREATE TABLE IF NOT EXISTS fs_symlink (
         ino INTEGER PRIMARY KEY,
-        target TEXT NOT NULL,
-        FOREIGN KEY (ino) REFERENCES fs_inode(ino) ON DELETE CASCADE
+        target TEXT NOT NULL
       )
     `);
 
