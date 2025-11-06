@@ -1056,7 +1056,8 @@ pub async fn handle_pwrite64<T: Guest<Sandbox>>(
 
 /// The `lseek` system call.
 ///
-/// This intercepts `lseek` system calls and translates virtual FDs to kernel FDs.
+/// This intercepts `lseek` system calls and translates virtual FDs to kernel FDs,
+/// or calls FileOps::seek() for virtual files.
 pub async fn handle_lseek<T: Guest<Sandbox>>(
     guest: &mut T,
     args: &reverie::syscalls::Lseek,
@@ -1064,15 +1065,45 @@ pub async fn handle_lseek<T: Guest<Sandbox>>(
 ) -> Result<Option<i64>, Error> {
     let virtual_fd = args.fd();
 
-    // Translate virtual FD to kernel FD
-    if let Some(kernel_fd) = fd_table.translate(virtual_fd) {
-        let new_syscall = reverie::syscalls::Lseek::new()
-            .with_fd(kernel_fd)
-            .with_offset(args.offset())
-            .with_whence(args.whence());
+    // Get the FD entry
+    if let Some(entry) = fd_table.get(virtual_fd) {
+        // Check if this is a passthrough file with a kernel FD
+        if let Some(kernel_fd) = entry.kernel_fd() {
+            // Passthrough file - use kernel FD
+            let new_syscall = reverie::syscalls::Lseek::new()
+                .with_fd(kernel_fd)
+                .with_offset(args.offset())
+                .with_whence(args.whence());
 
-        let result = guest.inject(Syscall::Lseek(new_syscall)).await?;
-        return Ok(Some(result));
+            let result = guest.inject(Syscall::Lseek(new_syscall)).await?;
+            return Ok(Some(result));
+        } else {
+            // Virtual file - use FileOps::seek()
+            // Convert Whence enum to i32
+            use reverie::syscalls::Whence;
+            let whence = match args.whence() {
+                Whence::SEEK_SET => libc::SEEK_SET,
+                Whence::SEEK_CUR => libc::SEEK_CUR,
+                Whence::SEEK_END => libc::SEEK_END,
+                Whence::SEEK_DATA => libc::SEEK_DATA,
+                Whence::SEEK_HOLE => libc::SEEK_HOLE,
+                _ => return Ok(Some(-libc::EINVAL as i64)),
+            };
+            match entry.file_ops.seek(args.offset(), whence).await {
+                Ok(new_offset) => {
+                    return Ok(Some(new_offset));
+                }
+                Err(e) => {
+                    // Map VFS errors to errno
+                    let errno = match e {
+                        crate::vfs::VfsError::NotFound => -libc::ENOENT as i64,
+                        crate::vfs::VfsError::PermissionDenied => -libc::EACCES as i64,
+                        _ => -libc::EIO as i64,
+                    };
+                    return Ok(Some(errno));
+                }
+            }
+        }
     }
 
     // FD not in table, let the original syscall through (will likely fail with EBADF)
