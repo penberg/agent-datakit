@@ -43,7 +43,7 @@ pub async fn handle_openat<T: Guest<Sandbox>>(
                 let mode = args.mode().map(|m| m.bits()).unwrap_or(0o644);
                 match vfs.open(&path, args.flags().bits(), mode).await {
                     Ok(file_ops) => {
-                        let virtual_fd = fd_table.allocate(file_ops, args.flags().bits());
+                        let virtual_fd = fd_table.allocate(file_ops, args.flags().bits(), None);
                         return Ok(Some(virtual_fd as i64));
                     }
                     Err(e) => {
@@ -70,7 +70,7 @@ pub async fn handle_openat<T: Guest<Sandbox>>(
 
                 if kernel_fd >= 0 {
                     let file_ops = vfs.create_file_ops(kernel_fd as i32, args.flags().bits());
-                    let virtual_fd = fd_table.allocate(file_ops, args.flags().bits());
+                    let virtual_fd = fd_table.allocate(file_ops, args.flags().bits(), None);
                     return Ok(Some(virtual_fd as i64));
                 } else {
                     return Ok(Some(kernel_fd));
@@ -91,7 +91,7 @@ pub async fn handle_openat<T: Guest<Sandbox>>(
                 use std::sync::Arc;
                 let file_ops =
                     Arc::new(PassthroughFile::new(kernel_fd as i32, args.flags().bits()));
-                let virtual_fd = fd_table.allocate(file_ops, args.flags().bits());
+                let virtual_fd = fd_table.allocate(file_ops, args.flags().bits(), None);
                 return Ok(Some(virtual_fd as i64));
             } else {
                 return Ok(Some(kernel_fd));
@@ -272,7 +272,7 @@ pub async fn handle_dup<T: Guest<Sandbox>>(
             let new_file_ops = Arc::new(PassthroughFile::new(new_kernel_fd, old_entry.flags));
 
             // Allocate a new virtual FD with the new PassthroughFile
-            let new_vfd = fd_table.allocate(new_file_ops, old_entry.flags);
+            let new_vfd = fd_table.allocate(new_file_ops, old_entry.flags, old_entry.path.clone());
             return Ok(Some(new_vfd as i64));
         } else {
             // Virtualized file - just duplicate the virtual FD
@@ -335,13 +335,13 @@ pub async fn handle_dup2<T: Guest<Sandbox>>(
             use crate::vfs::passthrough::PassthroughFile;
             use std::sync::Arc;
             let file_ops = Arc::new(PassthroughFile::new(new_kernel_fd as i32, 0));
-            let _ = fd_table.allocate_at(new_vfd, file_ops, 0);
+            let _ = fd_table.allocate_at(new_vfd, file_ops, 0, old_entry.path.clone());
         } else {
             // Virtualized file - just clone the FileOps
             if let Some(old_entry) = old_new_entry {
                 old_entry.file_ops.close().await.ok();
             }
-            let _ = fd_table.allocate_at(new_vfd, old_entry.file_ops.clone(), 0);
+            let _ = fd_table.allocate_at(new_vfd, old_entry.file_ops.clone(), 0, old_entry.path.clone());
         }
 
         Ok(Some(new_vfd as i64))
@@ -404,13 +404,13 @@ pub async fn handle_dup3<T: Guest<Sandbox>>(
             use crate::vfs::passthrough::PassthroughFile;
             use std::sync::Arc;
             let file_ops = Arc::new(PassthroughFile::new(new_kernel_fd as i32, flags.bits()));
-            let _ = fd_table.allocate_at(new_vfd, file_ops, flags.bits());
+            let _ = fd_table.allocate_at(new_vfd, file_ops, flags.bits(), old_entry.path.clone());
         } else {
             // Virtualized file - just clone the FileOps
             if let Some(old_entry) = old_new_entry {
                 old_entry.file_ops.close().await.ok();
             }
-            let _ = fd_table.allocate_at(new_vfd, old_entry.file_ops.clone(), flags.bits());
+            let _ = fd_table.allocate_at(new_vfd, old_entry.file_ops.clone(), flags.bits(), old_entry.path.clone());
         }
 
         Ok(Some(new_vfd as i64))
@@ -495,12 +495,16 @@ pub async fn handle_fcntl<T: Guest<Sandbox>>(
 
                 // If the syscall succeeded, allocate a new virtual FD
                 if new_kernel_fd >= 0 {
+                    // Get the old entry to preserve the path
+                    let old_entry = fd_table.get(virtual_fd);
+                    let fd_path = old_entry.as_ref().and_then(|e| e.path.clone());
+
                     // Create a PassthroughFile for the new kernel FD
                     use crate::vfs::passthrough::PassthroughFile;
                     use std::sync::Arc;
                     let file_ops = Arc::new(PassthroughFile::new(new_kernel_fd as i32, flags));
                     // Allocate virtual FD at or above the requested minimum
-                    let new_vfd = fd_table.allocate_min(arg, file_ops, flags);
+                    let new_vfd = fd_table.allocate_min(arg, file_ops, flags, fd_path);
                     return Ok(Some(new_vfd as i64));
                 } else {
                     // Return the error code as-is
@@ -1298,9 +1302,9 @@ pub async fn handle_pipe2<T: Guest<Sandbox>>(
             let read_file_ops = Arc::new(PassthroughFile::new(kernel_fds[0], args.flags().bits()));
             let write_file_ops = Arc::new(PassthroughFile::new(kernel_fds[1], args.flags().bits()));
 
-            // Allocate virtual FDs for both pipe ends
-            let virtual_read_fd = fd_table.allocate(read_file_ops, args.flags().bits());
-            let virtual_write_fd = fd_table.allocate(write_file_ops, args.flags().bits());
+            // Allocate virtual FDs for both pipe ends (pipes don't have paths)
+            let virtual_read_fd = fd_table.allocate(read_file_ops, args.flags().bits(), None);
+            let virtual_write_fd = fd_table.allocate(write_file_ops, args.flags().bits(), None);
 
             // Write each FD individually as bytes to avoid alignment issues
             let read_bytes = virtual_read_fd.to_ne_bytes();
@@ -1336,7 +1340,8 @@ pub async fn handle_socket<T: Guest<Sandbox>>(
         use crate::vfs::passthrough::PassthroughFile;
         use std::sync::Arc;
         let file_ops = Arc::new(PassthroughFile::new(kernel_fd as i32, 0));
-        let virtual_fd = fd_table.allocate(file_ops, 0);
+        // Sockets don't have paths
+        let virtual_fd = fd_table.allocate(file_ops, 0, None);
         Ok(Some(virtual_fd as i64))
     } else {
         // Return the error code as-is
