@@ -262,6 +262,14 @@ impl FileOps for SqliteFileOps {
     }
 
     async fn fstat(&self) -> VfsResult<libc::stat> {
+        // Get the actual file stats from the filesystem
+        let stats = self
+            .fs
+            .stat(&self.path)
+            .await
+            .map_err(|e| VfsError::Other(format!("Failed to stat: {}", e)))?
+            .ok_or(VfsError::NotFound)?;
+
         let data = self.data.lock().unwrap();
 
         // Use MaybeUninit to construct libc::stat safely
@@ -269,20 +277,20 @@ impl FileOps for SqliteFileOps {
         unsafe {
             let stat_ptr = stat.as_mut_ptr();
             (*stat_ptr).st_dev = 0;
-            (*stat_ptr).st_ino = 0;
-            (*stat_ptr).st_nlink = 1;
-            (*stat_ptr).st_mode = libc::S_IFREG | 0o644;
-            (*stat_ptr).st_uid = 0;
-            (*stat_ptr).st_gid = 0;
+            (*stat_ptr).st_ino = stats.ino as u64;
+            (*stat_ptr).st_nlink = stats.nlink as u64;
+            (*stat_ptr).st_mode = stats.mode;
+            (*stat_ptr).st_uid = stats.uid;
+            (*stat_ptr).st_gid = stats.gid;
             (*stat_ptr).st_rdev = 0;
             (*stat_ptr).st_size = data.len() as i64;
             (*stat_ptr).st_blksize = 4096;
             (*stat_ptr).st_blocks = (data.len() as i64 + 4095) / 4096;
-            (*stat_ptr).st_atime = 0;
+            (*stat_ptr).st_atime = stats.atime;
             (*stat_ptr).st_atime_nsec = 0;
-            (*stat_ptr).st_mtime = 0;
+            (*stat_ptr).st_mtime = stats.mtime;
             (*stat_ptr).st_mtime_nsec = 0;
-            (*stat_ptr).st_ctime = 0;
+            (*stat_ptr).st_ctime = stats.ctime;
             (*stat_ptr).st_ctime_nsec = 0;
             Ok(stat.assume_init())
         }
