@@ -23,17 +23,38 @@ pub async fn handle_openat<T: Guest<Sandbox>>(
     mount_table: &MountTable,
     fd_table: &FdTable,
 ) -> Result<Option<i64>, Error> {
-    // Virtualize the dirfd: AT_FDCWD is a special value that doesn't need translation
-    let dirfd = args.dirfd();
-    let kernel_dirfd = if dirfd == libc::AT_FDCWD {
-        dirfd
-    } else {
-        fd_table.translate(dirfd).unwrap_or(dirfd)
-    };
-
     if let Some(path_addr) = args.path() {
         // Read the original path from guest memory
-        let path: std::path::PathBuf = path_addr.read(&guest.memory())?;
+        let mut path: std::path::PathBuf = path_addr.read(&guest.memory())?;
+
+        // Handle dirfd resolution for relative paths
+        let dirfd = args.dirfd();
+        let kernel_dirfd = if dirfd == libc::AT_FDCWD {
+            dirfd
+        } else if path.is_relative() {
+            // For relative paths, resolve against dirfd
+            if let Some(dir_entry) = fd_table.get(dirfd) {
+                // Check if this is a passthrough directory with a kernel FD first
+                if let Some(kfd) = dir_entry.kernel_fd() {
+                    // Passthrough directory - use the kernel FD and keep path as-is
+                    kfd
+                } else if let Some(dir_path) = &dir_entry.path {
+                    // Virtual directory - resolve relative path against the directory's path
+                    path = dir_path.join(&path);
+                    // For virtual directories, we'll use AT_FDCWD since we have the full path now
+                    libc::AT_FDCWD
+                } else {
+                    // Virtual file without a path - this shouldn't happen for directories
+                    return Ok(Some(-libc::EBADF as i64));
+                }
+            } else {
+                // dirfd not in table - will likely fail
+                dirfd
+            }
+        } else {
+            // Absolute path - dirfd is ignored, use AT_FDCWD
+            libc::AT_FDCWD
+        };
 
         // Check if this path matches a mount point
         if let Some((vfs, _translated_path)) = mount_table.resolve(&path) {
@@ -43,7 +64,9 @@ pub async fn handle_openat<T: Guest<Sandbox>>(
                 let mode = args.mode().map(|m| m.bits()).unwrap_or(0o644);
                 match vfs.open(&path, args.flags().bits(), mode).await {
                     Ok(file_ops) => {
-                        let virtual_fd = fd_table.allocate(file_ops, args.flags().bits(), None);
+                        // Store the path with the FD entry for directories
+                        let fd_path = Some(path.clone());
+                        let virtual_fd = fd_table.allocate(file_ops, args.flags().bits(), fd_path);
                         return Ok(Some(virtual_fd as i64));
                     }
                     Err(e) => {
@@ -70,7 +93,9 @@ pub async fn handle_openat<T: Guest<Sandbox>>(
 
                 if kernel_fd >= 0 {
                     let file_ops = vfs.create_file_ops(kernel_fd as i32, args.flags().bits());
-                    let virtual_fd = fd_table.allocate(file_ops, args.flags().bits(), None);
+                    // Store the path for passthrough directories too
+                    let fd_path = Some(path.clone());
+                    let virtual_fd = fd_table.allocate(file_ops, args.flags().bits(), fd_path);
                     return Ok(Some(virtual_fd as i64));
                 } else {
                     return Ok(Some(kernel_fd));
@@ -91,7 +116,9 @@ pub async fn handle_openat<T: Guest<Sandbox>>(
                 use std::sync::Arc;
                 let file_ops =
                     Arc::new(PassthroughFile::new(kernel_fd as i32, args.flags().bits()));
-                let virtual_fd = fd_table.allocate(file_ops, args.flags().bits(), None);
+                // Store path for unmounted files too (for potential use in openat)
+                let fd_path = Some(path.clone());
+                let virtual_fd = fd_table.allocate(file_ops, args.flags().bits(), fd_path);
                 return Ok(Some(virtual_fd as i64));
             } else {
                 return Ok(Some(kernel_fd));
