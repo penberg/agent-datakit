@@ -88,11 +88,6 @@ impl Vfs for SqliteVfs {
         }
     }
 
-    fn create_file_ops(&self, _kernel_fd: RawFd, _flags: i32) -> BoxedFileOps {
-        // This should not be called for virtual VFS
-        panic!("create_file_ops should not be called for virtual VFS");
-    }
-
     fn is_virtual(&self) -> bool {
         true
     }

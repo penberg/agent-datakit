@@ -1,6 +1,6 @@
 use agentfs_sandbox::{
-    init_fd_tables, init_mount_table, init_strace, MountConfig, MountTable, PassthroughVfs,
-    Sandbox, SqliteVfs,
+    init_fd_tables, init_mount_table, init_strace, BindVfs, MountConfig, MountTable, Sandbox,
+    SqliteVfs,
 };
 use agentfs_sdk::AgentFS;
 use anyhow::{Context, Result as AnyhowResult};
@@ -350,9 +350,8 @@ async fn main() -> Result<(), Error> {
                             src.display()
                         );
 
-                        // Create a PassthroughVfs for this bind mount
-                        let vfs =
-                            Arc::new(PassthroughVfs::new(src.clone(), mount_config.dst.clone()));
+                        // Create a BindVfs for this bind mount
+                        let vfs = Arc::new(BindVfs::new(src.clone(), mount_config.dst.clone()));
                         mount_table.add_mount(mount_config.dst.clone(), vfs);
                     }
                     agentfs_sandbox::MountType::Sqlite { src } => {

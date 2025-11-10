@@ -1,7 +1,7 @@
+pub mod bind;
 pub mod fdtable;
 pub mod file;
 pub mod mount;
-pub mod passthrough;
 pub mod sqlite;
 
 use async_trait::async_trait;
@@ -41,7 +41,6 @@ impl std::error::Error for VfsError {}
 pub type VfsResult<T> = StdResult<T, VfsError>;
 
 use file::BoxedFileOps;
-use std::os::unix::io::RawFd;
 
 /// Virtual file system trait.
 ///
@@ -55,12 +54,6 @@ pub trait Vfs: Send + Sync {
     /// It maps a guest/sandbox path to the real path that should be used.
     fn translate_path(&self, path: &Path) -> VfsResult<PathBuf>;
 
-    /// Open a file and return a FileOps implementation
-    ///
-    /// This creates the appropriate FileOps implementation for this VFS.
-    /// The kernel_fd is the file descriptor returned by the kernel after opening.
-    fn create_file_ops(&self, kernel_fd: RawFd, flags: i32) -> BoxedFileOps;
-
     /// Check if this VFS is purely virtual (no kernel file descriptors)
     ///
     /// Returns true if files are stored entirely in the VFS (like SQLite),
@@ -72,7 +65,6 @@ pub trait Vfs: Send + Sync {
     /// Open a file directly in the VFS (for virtual filesystems)
     ///
     /// This is only called for virtual VFS implementations. For passthrough
-    /// VFS, the kernel opens the file and create_file_ops is called instead.
     async fn open(&self, _path: &Path, _flags: i32, _mode: u32) -> VfsResult<BoxedFileOps> {
         Err(VfsError::Other(
             "open() not supported by this VFS".to_string(),
