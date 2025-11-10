@@ -1,14 +1,16 @@
 use crate::{
     sandbox::Sandbox,
     syscall::translate_path,
-    vfs::{fdtable::FdTable, mount::MountTable, passthrough::PassthroughFile},
+    vfs::{
+        fdtable::{FdEntry, FdTable},
+        mount::MountTable,
+    },
 };
 use reverie::{
     syscalls::{MemoryAccess, ReadAddr, Syscall},
     Error, Guest, Stack,
 };
 use std::mem::MaybeUninit;
-use std::sync::Arc;
 
 /// The `openat` system call.
 ///
@@ -38,7 +40,7 @@ pub async fn handle_openat<T: Guest<Sandbox>>(
                 if let Some(kfd) = dir_entry.kernel_fd() {
                     // Passthrough directory - use the kernel FD and keep path as-is
                     kfd
-                } else if let Some(dir_path) = &dir_entry.path {
+                } else if let Some(dir_path) = dir_entry.path() {
                     // Virtual directory - resolve relative path against the directory's path
                     path = dir_path.join(&path);
                     // For virtual directories, we'll use AT_FDCWD since we have the full path now
@@ -65,8 +67,12 @@ pub async fn handle_openat<T: Guest<Sandbox>>(
                 match vfs.open(&path, args.flags().bits(), mode).await {
                     Ok(file_ops) => {
                         // Store the path with the FD entry for directories
-                        let fd_path = Some(path.clone());
-                        let virtual_fd = fd_table.allocate(file_ops, args.flags().bits(), fd_path);
+                        let entry = FdEntry::Virtual {
+                            file_ops,
+                            flags: args.flags().bits(),
+                            path: Some(path.clone()),
+                        };
+                        let virtual_fd = fd_table.allocate(entry);
                         return Ok(Some(virtual_fd as i64));
                     }
                     Err(e) => {
@@ -92,10 +98,13 @@ pub async fn handle_openat<T: Guest<Sandbox>>(
                 let kernel_fd = guest.inject(Syscall::Openat(new_syscall)).await?;
 
                 if kernel_fd >= 0 {
-                    let file_ops = vfs.create_file_ops(kernel_fd as i32, args.flags().bits());
-                    // Store the path for passthrough directories too
-                    let fd_path = Some(path.clone());
-                    let virtual_fd = fd_table.allocate(file_ops, args.flags().bits(), fd_path);
+                    // Mounted path - create passthrough FD entry
+                    let entry = FdEntry::Passthrough {
+                        kernel_fd: kernel_fd as i32,
+                        flags: args.flags().bits(),
+                        path: Some(path.clone()),
+                    };
+                    let virtual_fd = fd_table.allocate(entry);
                     return Ok(Some(virtual_fd as i64));
                 } else {
                     return Ok(Some(kernel_fd));
@@ -112,13 +121,13 @@ pub async fn handle_openat<T: Guest<Sandbox>>(
             let kernel_fd = guest.inject(Syscall::Openat(new_syscall)).await?;
 
             if kernel_fd >= 0 {
-                use crate::vfs::passthrough::PassthroughFile;
-                use std::sync::Arc;
-                let file_ops =
-                    Arc::new(PassthroughFile::new(kernel_fd as i32, args.flags().bits()));
-                // Store path for unmounted files too (for potential use in openat)
-                let fd_path = Some(path.clone());
-                let virtual_fd = fd_table.allocate(file_ops, args.flags().bits(), fd_path);
+                // Unmounted path - create passthrough FD entry
+                let entry = FdEntry::Passthrough {
+                    kernel_fd: kernel_fd as i32,
+                    flags: args.flags().bits(),
+                    path: Some(path.clone()),
+                };
+                let virtual_fd = fd_table.allocate(entry);
                 return Ok(Some(virtual_fd as i64));
             } else {
                 return Ok(Some(kernel_fd));
@@ -134,56 +143,60 @@ pub async fn handle_openat<T: Guest<Sandbox>>(
 /// or calls FileOps directly for virtual files.
 pub async fn handle_read<T: Guest<Sandbox>>(
     guest: &mut T,
+    syscall: Syscall,
     args: &reverie::syscalls::Read,
     fd_table: &FdTable,
-) -> Result<Option<i64>, Error> {
+) -> Result<crate::syscall::SyscallResult, Error> {
     let virtual_fd = args.fd();
 
     // Get the FD entry
     if let Some(entry) = fd_table.get(virtual_fd) {
-        // Check if this is a passthrough file with a kernel FD
-        if let Some(kernel_fd) = entry.kernel_fd() {
-            // Passthrough file - use kernel FD
-            let new_syscall = reverie::syscalls::Read::new()
-                .with_fd(kernel_fd)
-                .with_buf(args.buf())
-                .with_len(args.len());
+        match entry {
+            FdEntry::Passthrough { kernel_fd, .. } => {
+                // Passthrough file - rewrite FD and return modified syscall for tail_inject
+                let new_syscall = reverie::syscalls::Read::new()
+                    .with_fd(kernel_fd)
+                    .with_buf(args.buf())
+                    .with_len(args.len());
 
-            let result = guest.inject(Syscall::Read(new_syscall)).await?;
-            return Ok(Some(result));
-        } else {
-            // Virtual file - use FileOps directly
-            let buf_addr = match args.buf() {
-                Some(addr) => addr,
-                None => return Ok(Some(-libc::EFAULT as i64)),
-            };
+                return Ok(crate::syscall::SyscallResult::Syscall(Syscall::Read(
+                    new_syscall,
+                )));
+            }
+            FdEntry::Virtual { file_ops, .. } => {
+                // Virtual file - use FileOps directly
+                let buf_addr = match args.buf() {
+                    Some(addr) => addr,
+                    None => return Ok(crate::syscall::SyscallResult::Value(-libc::EFAULT as i64)),
+                };
 
-            let buf_len = args.len();
-            let mut buf = vec![0u8; buf_len];
+                let buf_len = args.len();
+                let mut buf = vec![0u8; buf_len];
 
-            match entry.file_ops.read(&mut buf).await {
-                Ok(n) => {
-                    // Write the data back to guest memory
-                    if n > 0 {
-                        guest.memory().write_exact(buf_addr, &buf[..n])?;
+                match file_ops.read(&mut buf).await {
+                    Ok(n) => {
+                        // Write the data back to guest memory
+                        if n > 0 {
+                            guest.memory().write_exact(buf_addr, &buf[..n])?;
+                        }
+                        return Ok(crate::syscall::SyscallResult::Value(n as i64));
                     }
-                    return Ok(Some(n as i64));
-                }
-                Err(e) => {
-                    // Map VFS errors to errno
-                    let errno = match e {
-                        crate::vfs::VfsError::NotFound => -libc::ENOENT as i64,
-                        crate::vfs::VfsError::PermissionDenied => -libc::EACCES as i64,
-                        _ => -libc::EIO as i64,
-                    };
-                    return Ok(Some(errno));
+                    Err(e) => {
+                        // Map VFS errors to errno
+                        let errno = match e {
+                            crate::vfs::VfsError::NotFound => -libc::ENOENT as i64,
+                            crate::vfs::VfsError::PermissionDenied => -libc::EACCES as i64,
+                            _ => -libc::EIO as i64,
+                        };
+                        return Ok(crate::syscall::SyscallResult::Value(errno));
+                    }
                 }
             }
         }
     }
 
     // FD not in table, let the original syscall through (will likely fail with EBADF)
-    Ok(None)
+    Ok(crate::syscall::SyscallResult::Syscall(syscall))
 }
 
 /// The `write` system call.
@@ -192,55 +205,59 @@ pub async fn handle_read<T: Guest<Sandbox>>(
 /// or calls FileOps directly for virtual files.
 pub async fn handle_write<T: Guest<Sandbox>>(
     guest: &mut T,
+    syscall: Syscall,
     args: &reverie::syscalls::Write,
     fd_table: &FdTable,
-) -> Result<Option<i64>, Error> {
+) -> Result<crate::syscall::SyscallResult, Error> {
     let virtual_fd = args.fd();
 
     // Get the FD entry
     if let Some(entry) = fd_table.get(virtual_fd) {
-        // Check if this is a passthrough file with a kernel FD
-        if let Some(kernel_fd) = entry.kernel_fd() {
-            // Passthrough file - use kernel FD
-            let new_syscall = reverie::syscalls::Write::new()
-                .with_fd(kernel_fd)
-                .with_buf(args.buf())
-                .with_len(args.len());
+        match entry {
+            FdEntry::Passthrough { kernel_fd, .. } => {
+                // Passthrough file - rewrite FD and return modified syscall for tail_inject
+                let new_syscall = reverie::syscalls::Write::new()
+                    .with_fd(kernel_fd)
+                    .with_buf(args.buf())
+                    .with_len(args.len());
 
-            let result = guest.inject(Syscall::Write(new_syscall)).await?;
-            return Ok(Some(result));
-        } else {
-            // Virtual file - use FileOps directly
-            let buf_addr = match args.buf() {
-                Some(addr) => addr,
-                None => return Ok(Some(-libc::EFAULT as i64)),
-            };
+                return Ok(crate::syscall::SyscallResult::Syscall(Syscall::Write(
+                    new_syscall,
+                )));
+            }
+            FdEntry::Virtual { file_ops, .. } => {
+                // Virtual file - use FileOps directly
+                let buf_addr = match args.buf() {
+                    Some(addr) => addr,
+                    None => return Ok(crate::syscall::SyscallResult::Value(-libc::EFAULT as i64)),
+                };
 
-            let buf_len = args.len();
-            let mut buf = vec![0u8; buf_len];
+                let buf_len = args.len();
+                let mut buf = vec![0u8; buf_len];
 
-            // Read data from guest memory
-            guest.memory().read_exact(buf_addr, &mut buf)?;
+                // Read data from guest memory
+                guest.memory().read_exact(buf_addr, &mut buf)?;
 
-            match entry.file_ops.write(&buf).await {
-                Ok(n) => {
-                    return Ok(Some(n as i64));
-                }
-                Err(e) => {
-                    // Map VFS errors to errno
-                    let errno = match e {
-                        crate::vfs::VfsError::NotFound => -libc::ENOENT as i64,
-                        crate::vfs::VfsError::PermissionDenied => -libc::EACCES as i64,
-                        _ => -libc::EIO as i64,
-                    };
-                    return Ok(Some(errno));
+                match file_ops.write(&buf).await {
+                    Ok(n) => {
+                        return Ok(crate::syscall::SyscallResult::Value(n as i64));
+                    }
+                    Err(e) => {
+                        // Map VFS errors to errno
+                        let errno = match e {
+                            crate::vfs::VfsError::NotFound => -libc::ENOENT as i64,
+                            crate::vfs::VfsError::PermissionDenied => -libc::EACCES as i64,
+                            _ => -libc::EIO as i64,
+                        };
+                        return Ok(crate::syscall::SyscallResult::Value(errno));
+                    }
                 }
             }
         }
     }
 
     // FD not in table, let the original syscall through (will likely fail with EBADF)
-    Ok(None)
+    Ok(crate::syscall::SyscallResult::Syscall(syscall))
 }
 
 /// The `close` system call.
@@ -248,28 +265,34 @@ pub async fn handle_write<T: Guest<Sandbox>>(
 /// This intercepts `close` system calls, translates virtual FDs to kernel FDs,
 /// and cleans up the FD mapping.
 pub async fn handle_close<T: Guest<Sandbox>>(
-    guest: &mut T,
+    _guest: &mut T,
+    syscall: Syscall,
     args: &reverie::syscalls::Close,
     fd_table: &FdTable,
-) -> Result<Option<i64>, Error> {
+) -> Result<crate::syscall::SyscallResult, Error> {
     let virtual_fd = args.fd();
 
     // Translate and deallocate the virtual FD
     if let Some(entry) = fd_table.deallocate(virtual_fd) {
-        if let Some(kernel_fd) = entry.kernel_fd() {
-            let new_syscall = reverie::syscalls::Close::new().with_fd(kernel_fd);
+        match entry {
+            FdEntry::Passthrough { kernel_fd, .. } => {
+                // Passthrough file - rewrite FD and return modified syscall for tail_inject
+                let new_syscall = reverie::syscalls::Close::new().with_fd(kernel_fd);
 
-            let result = guest.inject(Syscall::Close(new_syscall)).await?;
-            return Ok(Some(result));
-        } else {
-            // Virtualized file - just call close on the FileOps
-            entry.file_ops.close().await.ok();
-            return Ok(Some(0)); // Success
+                return Ok(crate::syscall::SyscallResult::Syscall(Syscall::Close(
+                    new_syscall,
+                )));
+            }
+            FdEntry::Virtual { file_ops, .. } => {
+                // Virtualized file - just call close on the FileOps
+                file_ops.close().await.ok();
+                return Ok(crate::syscall::SyscallResult::Value(0)); // Success
+            }
         }
     }
 
     // FD not in table, let the original syscall through (will likely fail with EBADF)
-    Ok(None)
+    Ok(crate::syscall::SyscallResult::Syscall(syscall))
 }
 
 /// The `dup` system call.
@@ -284,27 +307,37 @@ pub async fn handle_dup<T: Guest<Sandbox>>(
 
     // Get the old entry to preserve flags
     if let Some(old_entry) = fd_table.get(old_vfd) {
-        // Check if this is a passthrough file with a kernel FD
-        if let Some(kernel_fd) = old_entry.kernel_fd() {
-            // Duplicate the kernel FD at the kernel level first
-            let new_syscall = reverie::syscalls::Dup::new().with_oldfd(kernel_fd);
-            let result = guest.inject(Syscall::Dup(new_syscall)).await?;
+        match old_entry {
+            FdEntry::Passthrough {
+                kernel_fd,
+                flags,
+                path,
+            } => {
+                // Duplicate the kernel FD at the kernel level first
+                let new_syscall = reverie::syscalls::Dup::new().with_oldfd(kernel_fd);
+                let result = guest.inject(Syscall::Dup(new_syscall)).await?;
 
-            if result < 0 {
-                return Ok(Some(result));
-            }
+                if result < 0 {
+                    return Ok(Some(result));
+                }
 
-            // Create a new PassthroughFile with the new kernel FD
-            let new_kernel_fd = result as i32;
-            let new_file_ops = Arc::new(PassthroughFile::new(new_kernel_fd, old_entry.flags));
+                // Create a new passthrough FD entry with the new kernel FD
+                let new_kernel_fd = result as i32;
+                let entry = FdEntry::Passthrough {
+                    kernel_fd: new_kernel_fd,
+                    flags,
+                    path,
+                };
 
-            // Allocate a new virtual FD with the new PassthroughFile
-            let new_vfd = fd_table.allocate(new_file_ops, old_entry.flags, old_entry.path.clone());
-            return Ok(Some(new_vfd as i64));
-        } else {
-            // Virtualized file - just duplicate the virtual FD
-            if let Some(new_vfd) = fd_table.duplicate(old_vfd) {
+                // Allocate a new virtual FD
+                let new_vfd = fd_table.allocate(entry);
                 return Ok(Some(new_vfd as i64));
+            }
+            FdEntry::Virtual { .. } => {
+                // Virtualized file - just duplicate the virtual FD
+                if let Some(new_vfd) = fd_table.duplicate(old_vfd) {
+                    return Ok(Some(new_vfd as i64));
+                }
             }
         }
     }
@@ -329,46 +362,68 @@ pub async fn handle_dup2<T: Guest<Sandbox>>(
         // Get the entry at new_vfd if it exists (we need to close its kernel FD)
         let old_new_entry = fd_table.get(new_vfd);
 
-        // If we have a kernel FD, duplicate it at the kernel level
-        if let Some(old_kernel_fd) = old_entry.kernel_fd() {
-            // Allocate a new kernel FD - we need to duplicate to a fresh FD first,
-            // then close the old one if needed, to avoid race conditions
-            let new_kernel_fd = guest
-                .inject(Syscall::Dup(
-                    reverie::syscalls::Dup::new().with_oldfd(old_kernel_fd),
-                ))
-                .await?;
+        match old_entry {
+            FdEntry::Passthrough {
+                kernel_fd: old_kernel_fd,
+                flags: _,
+                path,
+            } => {
+                // Allocate a new kernel FD - we need to duplicate to a fresh FD first,
+                // then close the old one if needed, to avoid race conditions
+                let new_kernel_fd = guest
+                    .inject(Syscall::Dup(
+                        reverie::syscalls::Dup::new().with_oldfd(old_kernel_fd),
+                    ))
+                    .await?;
 
-            if new_kernel_fd < 0 {
-                // Dup failed, return the error
-                return Ok(Some(new_kernel_fd));
-            }
-
-            // Close the old kernel FD at new_vfd if it existed
-            if let Some(old_entry) = old_new_entry {
-                if let Some(kernel_fd) = old_entry.kernel_fd() {
-                    let _ = guest
-                        .inject(Syscall::Close(
-                            reverie::syscalls::Close::new().with_fd(kernel_fd),
-                        ))
-                        .await?;
-                } else {
-                    // Close the FileOps if it's a virtualized file
-                    old_entry.file_ops.close().await.ok();
+                if new_kernel_fd < 0 {
+                    // Dup failed, return the error
+                    return Ok(Some(new_kernel_fd));
                 }
-            }
 
-            // Create new PassthroughFile for the duplicated kernel FD
-            use crate::vfs::passthrough::PassthroughFile;
-            use std::sync::Arc;
-            let file_ops = Arc::new(PassthroughFile::new(new_kernel_fd as i32, 0));
-            let _ = fd_table.allocate_at(new_vfd, file_ops, 0, old_entry.path.clone());
-        } else {
-            // Virtualized file - just clone the FileOps
-            if let Some(old_entry) = old_new_entry {
-                old_entry.file_ops.close().await.ok();
+                // Close the old kernel FD at new_vfd if it existed
+                if let Some(old_entry) = old_new_entry {
+                    match old_entry {
+                        FdEntry::Passthrough { kernel_fd, .. } => {
+                            let _ = guest
+                                .inject(Syscall::Close(
+                                    reverie::syscalls::Close::new().with_fd(kernel_fd),
+                                ))
+                                .await?;
+                        }
+                        FdEntry::Virtual { file_ops, .. } => {
+                            // Close the FileOps if it's a virtualized file
+                            file_ops.close().await.ok();
+                        }
+                    }
+                }
+
+                // Create new passthrough FD entry for the duplicated kernel FD
+                let entry = FdEntry::Passthrough {
+                    kernel_fd: new_kernel_fd as i32,
+                    flags: 0,
+                    path,
+                };
+                let _ = fd_table.allocate_at(new_vfd, entry);
             }
-            let _ = fd_table.allocate_at(new_vfd, old_entry.file_ops.clone(), 0, old_entry.path.clone());
+            FdEntry::Virtual { .. } => {
+                // Virtualized file - close old entry at new_vfd if exists, then duplicate
+                if let Some(old_entry) = old_new_entry {
+                    match old_entry {
+                        FdEntry::Virtual { file_ops, .. } => {
+                            file_ops.close().await.ok();
+                        }
+                        FdEntry::Passthrough { kernel_fd, .. } => {
+                            let _ = guest
+                                .inject(Syscall::Close(
+                                    reverie::syscalls::Close::new().with_fd(kernel_fd),
+                                ))
+                                .await?;
+                        }
+                    }
+                }
+                let _ = fd_table.allocate_at(new_vfd, old_entry);
+            }
         }
 
         Ok(Some(new_vfd as i64))
@@ -395,49 +450,79 @@ pub async fn handle_dup3<T: Guest<Sandbox>>(
         // Get the entry at new_vfd if it exists (we need to close its kernel FD)
         let old_new_entry = fd_table.get(new_vfd);
 
-        // If we have a kernel FD, duplicate it at the kernel level
-        if let Some(old_kernel_fd) = old_entry.kernel_fd() {
-            // Allocate a new kernel FD - we need to duplicate to a fresh FD first,
-            // then close the old one if needed, to avoid race conditions
-            let new_kernel_fd = guest
-                .inject(Syscall::Dup(
-                    reverie::syscalls::Dup::new().with_oldfd(old_kernel_fd),
-                ))
-                .await?;
+        match old_entry {
+            FdEntry::Passthrough {
+                kernel_fd: old_kernel_fd,
+                path,
+                ..
+            } => {
+                // Allocate a new kernel FD - we need to duplicate to a fresh FD first,
+                // then close the old one if needed, to avoid race conditions
+                let new_kernel_fd = guest
+                    .inject(Syscall::Dup(
+                        reverie::syscalls::Dup::new().with_oldfd(old_kernel_fd),
+                    ))
+                    .await?;
 
-            if new_kernel_fd < 0 {
-                // Dup failed, return the error
-                return Ok(Some(new_kernel_fd));
-            }
-
-            // Close the old kernel FD at new_vfd if it existed
-            if let Some(old_entry) = old_new_entry {
-                if let Some(kernel_fd) = old_entry.kernel_fd() {
-                    let _ = guest
-                        .inject(Syscall::Close(
-                            reverie::syscalls::Close::new().with_fd(kernel_fd),
-                        ))
-                        .await?;
-                } else {
-                    old_entry.file_ops.close().await.ok();
+                if new_kernel_fd < 0 {
+                    // Dup failed, return the error
+                    return Ok(Some(new_kernel_fd));
                 }
-            }
 
-            // Note: dup3 flags (O_CLOEXEC) are stored in the FD table and will be
-            // applied later when needed (e.g., on exec). The kernel FD itself doesn't
-            // need the flag since we're virtualizing the behavior.
+                // Close the old kernel FD at new_vfd if it existed
+                if let Some(old_entry) = old_new_entry {
+                    match old_entry {
+                        FdEntry::Passthrough { kernel_fd, .. } => {
+                            let _ = guest
+                                .inject(Syscall::Close(
+                                    reverie::syscalls::Close::new().with_fd(kernel_fd),
+                                ))
+                                .await?;
+                        }
+                        FdEntry::Virtual { file_ops, .. } => {
+                            file_ops.close().await.ok();
+                        }
+                    }
+                }
 
-            // Create new PassthroughFile for the duplicated kernel FD
-            use crate::vfs::passthrough::PassthroughFile;
-            use std::sync::Arc;
-            let file_ops = Arc::new(PassthroughFile::new(new_kernel_fd as i32, flags.bits()));
-            let _ = fd_table.allocate_at(new_vfd, file_ops, flags.bits(), old_entry.path.clone());
-        } else {
-            // Virtualized file - just clone the FileOps
-            if let Some(old_entry) = old_new_entry {
-                old_entry.file_ops.close().await.ok();
+                // Note: dup3 flags (O_CLOEXEC) are stored in the FD table and will be
+                // applied later when needed (e.g., on exec). The kernel FD itself doesn't
+                // need the flag since we're virtualizing the behavior.
+
+                // Create new passthrough FD entry for the duplicated kernel FD
+                let entry = FdEntry::Passthrough {
+                    kernel_fd: new_kernel_fd as i32,
+                    flags: flags.bits(),
+                    path,
+                };
+                let _ = fd_table.allocate_at(new_vfd, entry);
             }
-            let _ = fd_table.allocate_at(new_vfd, old_entry.file_ops.clone(), flags.bits(), old_entry.path.clone());
+            FdEntry::Virtual { .. } => {
+                // Virtualized file - close old entry at new_vfd if exists, then duplicate
+                if let Some(old_entry) = old_new_entry {
+                    match old_entry {
+                        FdEntry::Virtual { file_ops, .. } => {
+                            file_ops.close().await.ok();
+                        }
+                        FdEntry::Passthrough { kernel_fd, .. } => {
+                            let _ = guest
+                                .inject(Syscall::Close(
+                                    reverie::syscalls::Close::new().with_fd(kernel_fd),
+                                ))
+                                .await?;
+                        }
+                    }
+                }
+                let entry = match old_entry {
+                    FdEntry::Virtual { file_ops, path, .. } => FdEntry::Virtual {
+                        file_ops,
+                        flags: flags.bits(),
+                        path,
+                    },
+                    _ => unreachable!(),
+                };
+                let _ = fd_table.allocate_at(new_vfd, entry);
+            }
         }
 
         Ok(Some(new_vfd as i64))
@@ -524,14 +609,16 @@ pub async fn handle_fcntl<T: Guest<Sandbox>>(
                 if new_kernel_fd >= 0 {
                     // Get the old entry to preserve the path
                     let old_entry = fd_table.get(virtual_fd);
-                    let fd_path = old_entry.as_ref().and_then(|e| e.path.clone());
+                    let fd_path = old_entry.as_ref().and_then(|e| e.path());
 
-                    // Create a PassthroughFile for the new kernel FD
-                    use crate::vfs::passthrough::PassthroughFile;
-                    use std::sync::Arc;
-                    let file_ops = Arc::new(PassthroughFile::new(new_kernel_fd as i32, flags));
+                    // Create passthrough FD entry for the new kernel FD
+                    let entry = FdEntry::Passthrough {
+                        kernel_fd: new_kernel_fd as i32,
+                        flags,
+                        path: fd_path.cloned(),
+                    };
                     // Allocate virtual FD at or above the requested minimum
-                    let new_vfd = fd_table.allocate_min(arg, file_ops, flags, fd_path);
+                    let new_vfd = fd_table.allocate_min(arg, entry);
                     return Ok(Some(new_vfd as i64));
                 } else {
                     // Return the error code as-is
@@ -869,79 +956,87 @@ pub async fn handle_poll<T: Guest<Sandbox>>(
 /// or calls FileOps::getdents() for virtual files.
 pub async fn handle_getdents64<T: Guest<Sandbox>>(
     guest: &mut T,
+    syscall: Syscall,
     args: &reverie::syscalls::Getdents64,
     fd_table: &FdTable,
-) -> Result<Option<i64>, Error> {
+) -> Result<crate::syscall::SyscallResult, Error> {
     let virtual_fd = args.fd() as i32;
 
     // Get the FD entry
     if let Some(entry) = fd_table.get(virtual_fd) {
-        // Check if this is a passthrough file with a kernel FD
-        if let Some(kernel_fd) = entry.kernel_fd() {
-            // Passthrough file - use kernel FD
-            let new_syscall = reverie::syscalls::Getdents64::new()
-                .with_fd(kernel_fd as u32)
-                .with_dirent(args.dirent())
-                .with_count(args.count());
+        match entry {
+            FdEntry::Passthrough { kernel_fd, .. } => {
+                // Passthrough file - rewrite FD and return modified syscall for tail_inject
+                let new_syscall = reverie::syscalls::Getdents64::new()
+                    .with_fd(kernel_fd as u32)
+                    .with_dirent(args.dirent())
+                    .with_count(args.count());
 
-            let result = guest.inject(Syscall::Getdents64(new_syscall)).await?;
-            return Ok(Some(result));
-        } else {
-            // Virtual file - use FileOps::getdents()
-            match entry.file_ops.getdents().await {
-                Ok(entries) => {
-                    // Format as linux_dirent64 structures
-                    let dirent_addr = match args.dirent() {
-                        Some(addr) => addr,
-                        None => return Ok(Some(-libc::EFAULT as i64)),
-                    };
-                    let count = args.count() as usize;
+                return Ok(crate::syscall::SyscallResult::Syscall(Syscall::Getdents64(
+                    new_syscall,
+                )));
+            }
+            FdEntry::Virtual { file_ops, .. } => {
+                // Virtual file - use FileOps::getdents()
+                match file_ops.getdents().await {
+                    Ok(entries) => {
+                        // Format as linux_dirent64 structures
+                        let dirent_addr = match args.dirent() {
+                            Some(addr) => addr,
+                            None => {
+                                return Ok(crate::syscall::SyscallResult::Value(
+                                    -libc::EFAULT as i64,
+                                ))
+                            }
+                        };
+                        let count = args.count() as usize;
 
-                    let mut buf = Vec::new();
-                    let mut offset = 1i64;
+                        let mut buf = Vec::new();
+                        let mut offset = 1i64;
 
-                    for (ino, name, d_type) in entries {
-                        // Calculate record length (aligned to 8 bytes)
-                        let name_len = name.len() + 1; // +1 for null terminator
-                        let reclen = (19 + name_len).div_ceil(8) * 8; // 19 = sizeof(ino + off + reclen + type)
+                        for (ino, name, d_type) in entries {
+                            // Calculate record length (aligned to 8 bytes)
+                            let name_len = name.len() + 1; // +1 for null terminator
+                            let reclen = (19 + name_len).div_ceil(8) * 8; // 19 = sizeof(ino + off + reclen + type)
 
-                        if buf.len() + reclen > count {
-                            break; // Not enough space
+                            if buf.len() + reclen > count {
+                                break; // Not enough space
+                            }
+
+                            // Write linux_dirent64 structure
+                            buf.extend_from_slice(&ino.to_ne_bytes()); // d_ino (u64)
+                            buf.extend_from_slice(&offset.to_ne_bytes()); // d_off (i64)
+                            buf.extend_from_slice(&(reclen as u16).to_ne_bytes()); // d_reclen (u16)
+                            buf.push(d_type); // d_type (u8)
+                            buf.extend_from_slice(name.as_bytes()); // d_name
+                            buf.push(0); // null terminator
+
+                            // Pad to 8-byte alignment
+                            while buf.len() % 8 != 0 {
+                                buf.push(0);
+                            }
+
+                            offset += 1;
                         }
 
-                        // Write linux_dirent64 structure
-                        buf.extend_from_slice(&ino.to_ne_bytes()); // d_ino (u64)
-                        buf.extend_from_slice(&offset.to_ne_bytes()); // d_off (i64)
-                        buf.extend_from_slice(&(reclen as u16).to_ne_bytes()); // d_reclen (u16)
-                        buf.push(d_type); // d_type (u8)
-                        buf.extend_from_slice(name.as_bytes()); // d_name
-                        buf.push(0); // null terminator
-
-                        // Pad to 8-byte alignment
-                        while buf.len() % 8 != 0 {
-                            buf.push(0);
+                        // Write to guest memory
+                        if !buf.is_empty() {
+                            guest.memory().write_exact(dirent_addr.cast::<u8>(), &buf)?;
                         }
 
-                        offset += 1;
+                        return Ok(crate::syscall::SyscallResult::Value(buf.len() as i64));
                     }
-
-                    // Write to guest memory
-                    if !buf.is_empty() {
-                        guest.memory().write_exact(dirent_addr.cast::<u8>(), &buf)?;
+                    Err(_) => {
+                        // Not a directory or error
+                        return Ok(crate::syscall::SyscallResult::Value(-libc::ENOTDIR as i64));
                     }
-
-                    return Ok(Some(buf.len() as i64));
-                }
-                Err(_) => {
-                    // Not a directory or error
-                    return Ok(Some(-libc::ENOTDIR as i64));
                 }
             }
         }
     }
 
     // FD not in table, let the original syscall through (will likely fail with EBADF)
-    Ok(None)
+    Ok(crate::syscall::SyscallResult::Syscall(syscall))
 }
 
 /// The `fstat` system call.
@@ -950,56 +1045,60 @@ pub async fn handle_getdents64<T: Guest<Sandbox>>(
 /// or calls FileOps::fstat() for virtual files.
 pub async fn handle_fstat<T: Guest<Sandbox>>(
     guest: &mut T,
+    syscall: Syscall,
     args: &reverie::syscalls::Fstat,
     fd_table: &FdTable,
-) -> Result<Option<i64>, Error> {
+) -> Result<crate::syscall::SyscallResult, Error> {
     let virtual_fd = args.fd();
 
     // Get the FD entry
     if let Some(entry) = fd_table.get(virtual_fd) {
-        // Check if this is a passthrough file with a kernel FD
-        if let Some(kernel_fd) = entry.kernel_fd() {
-            // Passthrough file - use kernel FD
-            let new_syscall = reverie::syscalls::Fstat::new()
-                .with_fd(kernel_fd)
-                .with_stat(args.stat());
+        match entry {
+            FdEntry::Passthrough { kernel_fd, .. } => {
+                // Passthrough file - rewrite FD and return modified syscall for tail_inject
+                let new_syscall = reverie::syscalls::Fstat::new()
+                    .with_fd(kernel_fd)
+                    .with_stat(args.stat());
 
-            let result = guest.inject(Syscall::Fstat(new_syscall)).await?;
-            return Ok(Some(result));
-        } else {
-            // Virtual file - use FileOps::fstat()
-            match entry.file_ops.fstat().await {
-                Ok(stat_buf) => {
-                    // Write the stat result to guest memory
-                    if let Some(stat_addr) = args.stat() {
-                        // Convert stat struct to bytes and write
-                        let stat_bytes: &[u8] = unsafe {
-                            std::slice::from_raw_parts(
-                                &stat_buf as *const _ as *const u8,
-                                std::mem::size_of::<libc::stat>(),
-                            )
-                        };
-                        guest
-                            .memory()
-                            .write_exact(stat_addr.0.cast::<u8>(), stat_bytes)?;
+                return Ok(crate::syscall::SyscallResult::Syscall(Syscall::Fstat(
+                    new_syscall,
+                )));
+            }
+            FdEntry::Virtual { file_ops, .. } => {
+                // Virtual file - use FileOps::fstat()
+                match file_ops.fstat().await {
+                    Ok(stat_buf) => {
+                        // Write the stat result to guest memory
+                        if let Some(stat_addr) = args.stat() {
+                            // Convert stat struct to bytes and write
+                            let stat_bytes: &[u8] = unsafe {
+                                std::slice::from_raw_parts(
+                                    &stat_buf as *const _ as *const u8,
+                                    std::mem::size_of::<libc::stat>(),
+                                )
+                            };
+                            guest
+                                .memory()
+                                .write_exact(stat_addr.0.cast::<u8>(), stat_bytes)?;
+                        }
+                        return Ok(crate::syscall::SyscallResult::Value(0)); // Success
                     }
-                    return Ok(Some(0)); // Success
-                }
-                Err(e) => {
-                    // Map VFS errors to errno
-                    let errno = match e {
-                        crate::vfs::VfsError::NotFound => -libc::ENOENT as i64,
-                        crate::vfs::VfsError::PermissionDenied => -libc::EACCES as i64,
-                        _ => -libc::EIO as i64,
-                    };
-                    return Ok(Some(errno));
+                    Err(e) => {
+                        // Map VFS errors to errno
+                        let errno = match e {
+                            crate::vfs::VfsError::NotFound => -libc::ENOENT as i64,
+                            crate::vfs::VfsError::PermissionDenied => -libc::EACCES as i64,
+                            _ => -libc::EIO as i64,
+                        };
+                        return Ok(crate::syscall::SyscallResult::Value(errno));
+                    }
                 }
             }
         }
     }
 
     // FD not in table, let the original syscall through (will likely fail with EBADF)
-    Ok(None)
+    Ok(crate::syscall::SyscallResult::Syscall(syscall))
 }
 
 /// The `pread64` system call.
@@ -1059,55 +1158,59 @@ pub async fn handle_pwrite64<T: Guest<Sandbox>>(
 /// This intercepts `lseek` system calls and translates virtual FDs to kernel FDs,
 /// or calls FileOps::seek() for virtual files.
 pub async fn handle_lseek<T: Guest<Sandbox>>(
-    guest: &mut T,
+    _guest: &mut T,
+    syscall: Syscall,
     args: &reverie::syscalls::Lseek,
     fd_table: &FdTable,
-) -> Result<Option<i64>, Error> {
+) -> Result<crate::syscall::SyscallResult, Error> {
     let virtual_fd = args.fd();
 
     // Get the FD entry
     if let Some(entry) = fd_table.get(virtual_fd) {
-        // Check if this is a passthrough file with a kernel FD
-        if let Some(kernel_fd) = entry.kernel_fd() {
-            // Passthrough file - use kernel FD
-            let new_syscall = reverie::syscalls::Lseek::new()
-                .with_fd(kernel_fd)
-                .with_offset(args.offset())
-                .with_whence(args.whence());
+        match entry {
+            FdEntry::Passthrough { kernel_fd, .. } => {
+                // Passthrough file - rewrite FD and return modified syscall for tail_inject
+                let new_syscall = reverie::syscalls::Lseek::new()
+                    .with_fd(kernel_fd)
+                    .with_offset(args.offset())
+                    .with_whence(args.whence());
 
-            let result = guest.inject(Syscall::Lseek(new_syscall)).await?;
-            return Ok(Some(result));
-        } else {
-            // Virtual file - use FileOps::seek()
-            // Convert Whence enum to i32
-            use reverie::syscalls::Whence;
-            let whence = match args.whence() {
-                Whence::SEEK_SET => libc::SEEK_SET,
-                Whence::SEEK_CUR => libc::SEEK_CUR,
-                Whence::SEEK_END => libc::SEEK_END,
-                Whence::SEEK_DATA => libc::SEEK_DATA,
-                Whence::SEEK_HOLE => libc::SEEK_HOLE,
-                _ => return Ok(Some(-libc::EINVAL as i64)),
-            };
-            match entry.file_ops.seek(args.offset(), whence).await {
-                Ok(new_offset) => {
-                    return Ok(Some(new_offset));
-                }
-                Err(e) => {
-                    // Map VFS errors to errno
-                    let errno = match e {
-                        crate::vfs::VfsError::NotFound => -libc::ENOENT as i64,
-                        crate::vfs::VfsError::PermissionDenied => -libc::EACCES as i64,
-                        _ => -libc::EIO as i64,
-                    };
-                    return Ok(Some(errno));
+                return Ok(crate::syscall::SyscallResult::Syscall(Syscall::Lseek(
+                    new_syscall,
+                )));
+            }
+            FdEntry::Virtual { file_ops, .. } => {
+                // Virtual file - use FileOps::seek()
+                // Convert Whence enum to i32
+                use reverie::syscalls::Whence;
+                let whence = match args.whence() {
+                    Whence::SEEK_SET => libc::SEEK_SET,
+                    Whence::SEEK_CUR => libc::SEEK_CUR,
+                    Whence::SEEK_END => libc::SEEK_END,
+                    Whence::SEEK_DATA => libc::SEEK_DATA,
+                    Whence::SEEK_HOLE => libc::SEEK_HOLE,
+                    _ => return Ok(crate::syscall::SyscallResult::Value(-libc::EINVAL as i64)),
+                };
+                match file_ops.seek(args.offset(), whence).await {
+                    Ok(new_offset) => {
+                        return Ok(crate::syscall::SyscallResult::Value(new_offset));
+                    }
+                    Err(e) => {
+                        // Map VFS errors to errno
+                        let errno = match e {
+                            crate::vfs::VfsError::NotFound => -libc::ENOENT as i64,
+                            crate::vfs::VfsError::PermissionDenied => -libc::EACCES as i64,
+                            _ => -libc::EIO as i64,
+                        };
+                        return Ok(crate::syscall::SyscallResult::Value(errno));
+                    }
                 }
             }
         }
     }
 
     // FD not in table, let the original syscall through (will likely fail with EBADF)
-    Ok(None)
+    Ok(crate::syscall::SyscallResult::Syscall(syscall))
 }
 
 /// The `mmap` system call.
@@ -1354,15 +1457,21 @@ pub async fn handle_pipe2<T: Guest<Sandbox>>(
         if let Some(pipefd_addr) = args.pipefd() {
             let kernel_fds: [i32; 2] = guest.memory().read_value(pipefd_addr)?;
 
-            // Create PassthroughFile instances for both pipe ends
-            use crate::vfs::passthrough::PassthroughFile;
-            use std::sync::Arc;
-            let read_file_ops = Arc::new(PassthroughFile::new(kernel_fds[0], args.flags().bits()));
-            let write_file_ops = Arc::new(PassthroughFile::new(kernel_fds[1], args.flags().bits()));
+            // Create passthrough FD entries for both pipe ends
+            let read_entry = FdEntry::Passthrough {
+                kernel_fd: kernel_fds[0],
+                flags: args.flags().bits(),
+                path: None,
+            };
+            let write_entry = FdEntry::Passthrough {
+                kernel_fd: kernel_fds[1],
+                flags: args.flags().bits(),
+                path: None,
+            };
 
             // Allocate virtual FDs for both pipe ends (pipes don't have paths)
-            let virtual_read_fd = fd_table.allocate(read_file_ops, args.flags().bits(), None);
-            let virtual_write_fd = fd_table.allocate(write_file_ops, args.flags().bits(), None);
+            let virtual_read_fd = fd_table.allocate(read_entry);
+            let virtual_write_fd = fd_table.allocate(write_entry);
 
             // Write each FD individually as bytes to avoid alignment issues
             let read_bytes = virtual_read_fd.to_ne_bytes();
@@ -1395,11 +1504,13 @@ pub async fn handle_socket<T: Guest<Sandbox>>(
 
     // If the syscall succeeded (returned a valid FD), virtualize it
     if kernel_fd >= 0 {
-        use crate::vfs::passthrough::PassthroughFile;
-        use std::sync::Arc;
-        let file_ops = Arc::new(PassthroughFile::new(kernel_fd as i32, 0));
-        // Sockets don't have paths
-        let virtual_fd = fd_table.allocate(file_ops, 0, None);
+        // Create passthrough FD entry (sockets don't have paths)
+        let entry = FdEntry::Passthrough {
+            kernel_fd: kernel_fd as i32,
+            flags: 0,
+            path: None,
+        };
+        let virtual_fd = fd_table.allocate(entry);
         Ok(Some(virtual_fd as i64))
     } else {
         // Return the error code as-is

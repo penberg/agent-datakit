@@ -108,27 +108,9 @@ pub async fn dispatch_syscall<T: Guest<Sandbox>>(
                 Ok(SyscallResult::Syscall(syscall))
             }
         }
-        Syscall::Read(args) => {
-            if let Some(result) = file::handle_read(guest, args, fd_table).await? {
-                Ok(SyscallResult::Value(result))
-            } else {
-                Ok(SyscallResult::Syscall(syscall))
-            }
-        }
-        Syscall::Write(args) => {
-            if let Some(result) = file::handle_write(guest, args, fd_table).await? {
-                Ok(SyscallResult::Value(result))
-            } else {
-                Ok(SyscallResult::Syscall(syscall))
-            }
-        }
-        Syscall::Close(args) => {
-            if let Some(result) = file::handle_close(guest, args, fd_table).await? {
-                Ok(SyscallResult::Value(result))
-            } else {
-                Ok(SyscallResult::Syscall(syscall))
-            }
-        }
+        Syscall::Read(args) => file::handle_read(guest, syscall, args, fd_table).await,
+        Syscall::Write(args) => file::handle_write(guest, syscall, args, fd_table).await,
+        Syscall::Close(args) => file::handle_close(guest, syscall, args, fd_table).await,
         Syscall::Dup(args) => {
             if let Some(result) = file::handle_dup(guest, args, fd_table).await? {
                 Ok(SyscallResult::Value(result))
@@ -259,20 +241,8 @@ pub async fn dispatch_syscall<T: Guest<Sandbox>>(
                 Ok(SyscallResult::Syscall(syscall))
             }
         }
-        Syscall::Getdents64(args) => {
-            if let Some(result) = file::handle_getdents64(guest, args, fd_table).await? {
-                Ok(SyscallResult::Value(result))
-            } else {
-                Ok(SyscallResult::Syscall(syscall))
-            }
-        }
-        Syscall::Fstat(args) => {
-            if let Some(result) = file::handle_fstat(guest, args, fd_table).await? {
-                Ok(SyscallResult::Value(result))
-            } else {
-                Ok(SyscallResult::Syscall(syscall))
-            }
-        }
+        Syscall::Getdents64(args) => file::handle_getdents64(guest, syscall, args, fd_table).await,
+        Syscall::Fstat(args) => file::handle_fstat(guest, syscall, args, fd_table).await,
         Syscall::Pread64(args) => {
             if let Some(result) = file::handle_pread64(guest, args, fd_table).await? {
                 Ok(SyscallResult::Value(result))
@@ -287,13 +257,7 @@ pub async fn dispatch_syscall<T: Guest<Sandbox>>(
                 Ok(SyscallResult::Syscall(syscall))
             }
         }
-        Syscall::Lseek(args) => {
-            if let Some(result) = file::handle_lseek(guest, args, fd_table).await? {
-                Ok(SyscallResult::Value(result))
-            } else {
-                Ok(SyscallResult::Syscall(syscall))
-            }
-        }
+        Syscall::Lseek(args) => file::handle_lseek(guest, syscall, args, fd_table).await,
         Syscall::Readv(args) => {
             if let Some(result) = file::handle_readv(guest, args, fd_table).await? {
                 Ok(SyscallResult::Value(result))

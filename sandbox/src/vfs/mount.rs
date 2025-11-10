@@ -62,27 +62,6 @@ impl MountTable {
     pub fn mounts(&self) -> &[MountPoint] {
         &self.mounts
     }
-
-    /// Create a FileOps instance for a given path and kernel FD
-    ///
-    /// This resolves the path to the appropriate VFS and creates the
-    /// corresponding FileOps implementation. Returns None if no mount
-    /// point matches the path (indicating a regular file outside any mount).
-    pub fn create_file_ops(
-        &self,
-        path: &Path,
-        kernel_fd: std::os::unix::io::RawFd,
-        flags: i32,
-    ) -> Option<super::file::BoxedFileOps> {
-        // Try to find a matching VFS for this path
-        for mount in &self.mounts {
-            if mount.vfs.translate_path(path).is_ok() {
-                return Some(mount.vfs.create_file_ops(kernel_fd, flags));
-            }
-        }
-        // No mount point matched - return None to indicate passthrough
-        None
-    }
 }
 
 impl Default for MountTable {
@@ -242,7 +221,7 @@ impl std::str::FromStr for MountConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vfs::passthrough::PassthroughVfs;
+    use crate::vfs::bind::BindVfs;
 
     #[test]
     fn test_mount_table_longest_prefix() {
@@ -251,7 +230,7 @@ mod tests {
         // Add two overlapping mount points
         table.add_mount(
             PathBuf::from("/agent"),
-            Arc::new(PassthroughVfs::new(
+            Arc::new(BindVfs::new(
                 PathBuf::from("/tmp/agent"),
                 PathBuf::from("/agent"),
             )),
@@ -259,7 +238,7 @@ mod tests {
 
         table.add_mount(
             PathBuf::from("/agent/special"),
-            Arc::new(PassthroughVfs::new(
+            Arc::new(BindVfs::new(
                 PathBuf::from("/tmp/special"),
                 PathBuf::from("/agent/special"),
             )),
@@ -286,7 +265,7 @@ mod tests {
 
         table.add_mount(
             PathBuf::from("/agent"),
-            Arc::new(PassthroughVfs::new(
+            Arc::new(BindVfs::new(
                 PathBuf::from("/tmp/agent"),
                 PathBuf::from("/agent"),
             )),

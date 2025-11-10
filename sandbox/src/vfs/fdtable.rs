@@ -10,19 +10,52 @@ const FIRST_USER_FD: i32 = 3;
 
 /// Information about a virtualized file descriptor
 #[derive(Clone)]
-pub struct FdEntry {
-    /// The file operations implementation for this FD
-    pub file_ops: BoxedFileOps,
-    /// Flags associated with this FD (O_CLOEXEC, etc.)
-    pub flags: i32,
-    /// The path associated with this FD (for directories used in openat)
-    pub path: Option<std::path::PathBuf>,
+pub enum FdEntry {
+    /// Passthrough file - just maps virtual FD to kernel FD
+    Passthrough {
+        kernel_fd: i32,
+        flags: i32,
+        path: Option<std::path::PathBuf>,
+    },
+    /// Virtual file - has FileOps implementation
+    Virtual {
+        file_ops: BoxedFileOps,
+        flags: i32,
+        path: Option<std::path::PathBuf>,
+    },
 }
 
 impl FdEntry {
     /// Get the kernel file descriptor if this is a passthrough file
     pub fn kernel_fd(&self) -> Option<i32> {
-        self.file_ops.as_raw_fd()
+        match self {
+            FdEntry::Passthrough { kernel_fd, .. } => Some(*kernel_fd),
+            FdEntry::Virtual { .. } => None,
+        }
+    }
+
+    /// Get the flags for this FD entry
+    pub fn flags(&self) -> i32 {
+        match self {
+            FdEntry::Passthrough { flags, .. } => *flags,
+            FdEntry::Virtual { flags, .. } => *flags,
+        }
+    }
+
+    /// Get the path for this FD entry
+    pub fn path(&self) -> Option<&std::path::PathBuf> {
+        match self {
+            FdEntry::Passthrough { path, .. } => path.as_ref(),
+            FdEntry::Virtual { path, .. } => path.as_ref(),
+        }
+    }
+
+    /// Get the file_ops for virtual files
+    pub fn file_ops(&self) -> Option<&BoxedFileOps> {
+        match self {
+            FdEntry::Passthrough { .. } => None,
+            FdEntry::Virtual { file_ops, .. } => Some(file_ops),
+        }
     }
 }
 
@@ -52,31 +85,29 @@ pub struct FdTable {
 impl FdTable {
     /// Create a new FD table with standard FDs (stdin, stdout, stderr)
     pub fn new() -> Self {
-        use super::passthrough::PassthroughFile;
-
         let mut entries = HashMap::new();
 
         // Initialize standard file descriptors (0, 1, 2) as passthrough files
         entries.insert(
             STDIN_FILENO,
-            FdEntry {
-                file_ops: Arc::new(PassthroughFile::new(STDIN_FILENO, 0)),
+            FdEntry::Passthrough {
+                kernel_fd: STDIN_FILENO,
                 flags: 0,
                 path: None,
             },
         );
         entries.insert(
             STDOUT_FILENO,
-            FdEntry {
-                file_ops: Arc::new(PassthroughFile::new(STDOUT_FILENO, 0)),
+            FdEntry::Passthrough {
+                kernel_fd: STDOUT_FILENO,
                 flags: 0,
                 path: None,
             },
         );
         entries.insert(
             STDERR_FILENO,
-            FdEntry {
-                file_ops: Arc::new(PassthroughFile::new(STDERR_FILENO, 0)),
+            FdEntry::Passthrough {
+                kernel_fd: STDERR_FILENO,
                 flags: 0,
                 path: None,
             },
@@ -110,10 +141,10 @@ impl FdTable {
         }
     }
 
-    /// Allocate a new virtual FD for the given file operations
+    /// Allocate a new virtual FD for the given FdEntry
     ///
     /// This uses the lowest available FD number, as required by POSIX.
-    pub fn allocate(&self, file_ops: BoxedFileOps, flags: i32, path: Option<std::path::PathBuf>) -> i32 {
+    pub fn allocate(&self, entry: FdEntry) -> i32 {
         let mut inner = self
             .inner
             .lock()
@@ -137,14 +168,14 @@ impl FdTable {
             }
         };
 
-        inner.entries.insert(vfd, FdEntry { file_ops, flags, path });
+        inner.entries.insert(vfd, entry);
         vfd
     }
 
     /// Allocate a new virtual FD at or above the specified minimum
     ///
     /// This is used for fcntl F_DUPFD and F_DUPFD_CLOEXEC commands.
-    pub fn allocate_min(&self, min_vfd: i32, file_ops: BoxedFileOps, flags: i32, path: Option<std::path::PathBuf>) -> i32 {
+    pub fn allocate_min(&self, min_vfd: i32, entry: FdEntry) -> i32 {
         let mut inner = self
             .inner
             .lock()
@@ -168,7 +199,7 @@ impl FdTable {
             .filter(|&std::cmp::Reverse(fd)| fd != vfd)
             .collect();
 
-        inner.entries.insert(vfd, FdEntry { file_ops, flags, path });
+        inner.entries.insert(vfd, entry);
         vfd
     }
 
@@ -176,7 +207,7 @@ impl FdTable {
     ///
     /// Returns the old FdEntry if the VFD was already allocated, which the caller
     /// should close if needed.
-    pub fn allocate_at(&self, vfd: i32, file_ops: BoxedFileOps, flags: i32, path: Option<std::path::PathBuf>) -> Option<FdEntry> {
+    pub fn allocate_at(&self, vfd: i32, entry: FdEntry) -> Option<FdEntry> {
         let mut inner = self
             .inner
             .lock()
@@ -197,7 +228,7 @@ impl FdTable {
         }
 
         // Insert the new entry and return the old one if it existed
-        inner.entries.insert(vfd, FdEntry { file_ops, flags, path })
+        inner.entries.insert(vfd, entry)
     }
 
     /// Translate a virtual FD to a kernel FD
@@ -242,7 +273,7 @@ impl FdTable {
     pub fn duplicate(&self, old_vfd: i32) -> Option<i32> {
         let entry = self.get(old_vfd)?;
         // Allocate a new virtual FD pointing to the same file operations
-        Some(self.allocate(entry.file_ops.clone(), entry.flags, entry.path.clone()))
+        Some(self.allocate(entry))
     }
 
     /// Duplicate a virtual FD to a specific new FD (for dup2 syscall)
@@ -250,7 +281,7 @@ impl FdTable {
     /// Returns the old entry that was at new_vfd if it existed (caller should close it)
     pub fn duplicate_at(&self, old_vfd: i32, new_vfd: i32) -> Option<FdEntry> {
         let entry = self.get(old_vfd)?;
-        self.allocate_at(new_vfd, entry.file_ops.clone(), entry.flags, entry.path.clone())
+        self.allocate_at(new_vfd, entry)
     }
 }
 
@@ -286,26 +317,37 @@ mod tests {
 
     #[test]
     fn test_allocate() {
-        use super::super::passthrough::PassthroughFile;
-
         let table = FdTable::new();
 
-        let vfd1 = table.allocate(Arc::new(PassthroughFile::new(100, 0)), 0, None);
+        let entry1 = FdEntry::Passthrough {
+            kernel_fd: 100,
+            flags: 0,
+            path: None,
+        };
+        let vfd1 = table.allocate(entry1);
         assert_eq!(vfd1, 3); // First non-standard FD
         assert_eq!(table.translate(3), Some(100));
 
-        let vfd2 = table.allocate(Arc::new(PassthroughFile::new(101, 0)), 0, None);
+        let entry2 = FdEntry::Passthrough {
+            kernel_fd: 101,
+            flags: 0,
+            path: None,
+        };
+        let vfd2 = table.allocate(entry2);
         assert_eq!(vfd2, 4);
         assert_eq!(table.translate(4), Some(101));
     }
 
     #[test]
     fn test_deallocate() {
-        use super::super::passthrough::PassthroughFile;
-
         let table = FdTable::new();
 
-        let vfd = table.allocate(Arc::new(PassthroughFile::new(100, 0)), 0, None);
+        let entry = FdEntry::Passthrough {
+            kernel_fd: 100,
+            flags: 0,
+            path: None,
+        };
+        let vfd = table.allocate(entry);
         assert_eq!(table.translate(vfd), Some(100));
 
         let entry = table.deallocate(vfd);
@@ -317,11 +359,14 @@ mod tests {
 
     #[test]
     fn test_duplicate() {
-        use super::super::passthrough::PassthroughFile;
-
         let table = FdTable::new();
 
-        let vfd1 = table.allocate(Arc::new(PassthroughFile::new(100, 0)), 0, None);
+        let entry = FdEntry::Passthrough {
+            kernel_fd: 100,
+            flags: 0,
+            path: None,
+        };
+        let vfd1 = table.allocate(entry);
         let vfd2 = table.duplicate(vfd1).unwrap();
 
         assert_ne!(vfd1, vfd2);
@@ -331,11 +376,14 @@ mod tests {
 
     #[test]
     fn test_duplicate_at() {
-        use super::super::passthrough::PassthroughFile;
-
         let table = FdTable::new();
 
-        let vfd1 = table.allocate(Arc::new(PassthroughFile::new(100, 0)), 0, None);
+        let entry = FdEntry::Passthrough {
+            kernel_fd: 100,
+            flags: 0,
+            path: None,
+        };
+        let vfd1 = table.allocate(entry);
         let result = table.duplicate_at(vfd1, 10);
 
         // duplicate_at returns the old FdEntry that was at new_vfd (if any)
