@@ -186,6 +186,72 @@ impl Vfs for SqliteVfs {
             Ok(stat.assume_init())
         }
     }
+
+    async fn lstat(&self, path: &Path) -> VfsResult<libc::stat> {
+        let relative_path = self.translate_to_relative(path)?;
+
+        let stats = self
+            .fs
+            .lstat(&relative_path)
+            .await
+            .map_err(|e| VfsError::Other(format!("Failed to lstat: {}", e)))?
+            .ok_or(VfsError::NotFound)?;
+
+        // Use MaybeUninit to construct libc::stat safely
+        let mut stat: std::mem::MaybeUninit<libc::stat> = std::mem::MaybeUninit::zeroed();
+        unsafe {
+            let stat_ptr = stat.as_mut_ptr();
+            (*stat_ptr).st_dev = 0;
+            (*stat_ptr).st_ino = stats.ino as u64;
+            (*stat_ptr).st_nlink = stats.nlink as u64;
+            (*stat_ptr).st_mode = stats.mode;
+            (*stat_ptr).st_uid = stats.uid;
+            (*stat_ptr).st_gid = stats.gid;
+            (*stat_ptr).st_rdev = 0;
+            (*stat_ptr).st_size = stats.size;
+            (*stat_ptr).st_blksize = 4096;
+            (*stat_ptr).st_blocks = (stats.size + 4095) / 4096;
+            (*stat_ptr).st_atime = stats.atime;
+            (*stat_ptr).st_atime_nsec = 0;
+            (*stat_ptr).st_mtime = stats.mtime;
+            (*stat_ptr).st_mtime_nsec = 0;
+            (*stat_ptr).st_ctime = stats.ctime;
+            (*stat_ptr).st_ctime_nsec = 0;
+            Ok(stat.assume_init())
+        }
+    }
+
+    async fn symlink(&self, target: &Path, linkpath: &Path) -> VfsResult<()> {
+        let linkpath_rel = self.translate_to_relative(linkpath)?;
+        let target_str = target
+            .to_str()
+            .ok_or_else(|| VfsError::InvalidInput("Invalid target path".to_string()))?;
+
+        self.fs
+            .symlink(target_str, &linkpath_rel)
+            .await
+            .map_err(|e| {
+                let err_msg = e.to_string();
+                if err_msg.contains("already exists") {
+                    VfsError::AlreadyExists
+                } else {
+                    VfsError::Other(format!("Failed to create symlink: {}", e))
+                }
+            })
+    }
+
+    async fn readlink(&self, path: &Path) -> VfsResult<PathBuf> {
+        let relative_path = self.translate_to_relative(path)?;
+
+        let target = self
+            .fs
+            .readlink(&relative_path)
+            .await
+            .map_err(|e| VfsError::Other(format!("Failed to read symlink: {}", e)))?
+            .ok_or(VfsError::NotFound)?;
+
+        Ok(PathBuf::from(target))
+    }
 }
 
 /// File operations for SQLite VFS files

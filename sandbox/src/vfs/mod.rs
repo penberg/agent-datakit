@@ -13,6 +13,7 @@ use std::result::Result as StdResult;
 pub enum VfsError {
     NotFound,
     PermissionDenied,
+    AlreadyExists,
     InvalidInput(String),
     IoError(std::io::Error),
     Other(String),
@@ -29,6 +30,7 @@ impl std::fmt::Display for VfsError {
         match self {
             VfsError::NotFound => write!(f, "Not found"),
             VfsError::PermissionDenied => write!(f, "Permission denied"),
+            VfsError::AlreadyExists => write!(f, "Already exists"),
             VfsError::InvalidInput(msg) => write!(f, "Invalid input: {}", msg),
             VfsError::IoError(err) => write!(f, "IO error: {}", err),
             VfsError::Other(msg) => write!(f, "{}", msg),
@@ -72,12 +74,40 @@ pub trait Vfs: Send + Sync {
     }
 
     /// Get file status directly from the VFS (for virtual filesystems)
+    /// This follows symlinks.
     ///
     /// This is only called for virtual VFS implementations. For passthrough
     /// VFS, the kernel handles stat operations.
     async fn stat(&self, _path: &Path) -> VfsResult<libc::stat> {
         Err(VfsError::Other(
             "stat() not supported by this VFS".to_string(),
+        ))
+    }
+
+    /// Get file status without following symlinks (for virtual filesystems)
+    ///
+    /// This is only called for virtual VFS implementations.
+    async fn lstat(&self, _path: &Path) -> VfsResult<libc::stat> {
+        Err(VfsError::Other(
+            "lstat() not supported by this VFS".to_string(),
+        ))
+    }
+
+    /// Create a symbolic link (for virtual filesystems)
+    ///
+    /// This is only called for virtual VFS implementations.
+    async fn symlink(&self, _target: &Path, _linkpath: &Path) -> VfsResult<()> {
+        Err(VfsError::Other(
+            "symlink() not supported by this VFS".to_string(),
+        ))
+    }
+
+    /// Read the target of a symbolic link (for virtual filesystems)
+    ///
+    /// This is only called for virtual VFS implementations.
+    async fn readlink(&self, _path: &Path) -> VfsResult<PathBuf> {
+        Err(VfsError::Other(
+            "readlink() not supported by this VFS".to_string(),
         ))
     }
 }

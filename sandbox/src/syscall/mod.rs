@@ -184,17 +184,32 @@ pub async fn dispatch_syscall<T: Guest<Sandbox>>(
             }
         }
         Syscall::Readlink(args) => {
-            if let Some(modified) = stat::handle_readlink(guest, args, mount_table).await? {
-                Ok(SyscallResult::Syscall(modified))
+            if let Some(result) = stat::handle_readlink(guest, args, mount_table).await? {
+                Ok(SyscallResult::Value(result))
             } else {
                 Ok(SyscallResult::Syscall(syscall))
             }
         }
         Syscall::Readlinkat(args) => {
-            if let Some(modified) =
+            if let Some(result) =
                 stat::handle_readlinkat(guest, args, mount_table, fd_table).await?
             {
-                Ok(SyscallResult::Syscall(modified))
+                Ok(SyscallResult::Value(result))
+            } else {
+                Ok(SyscallResult::Syscall(syscall))
+            }
+        }
+        Syscall::Symlink(args) => {
+            if let Some(result) = stat::handle_symlink(guest, args, mount_table).await? {
+                Ok(SyscallResult::Value(result))
+            } else {
+                Ok(SyscallResult::Syscall(syscall))
+            }
+        }
+        Syscall::Symlinkat(args) => {
+            if let Some(result) = stat::handle_symlinkat(guest, args, mount_table, fd_table).await?
+            {
+                Ok(SyscallResult::Value(result))
             } else {
                 Ok(SyscallResult::Syscall(syscall))
             }
