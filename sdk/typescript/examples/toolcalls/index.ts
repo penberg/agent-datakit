@@ -2,8 +2,8 @@ import { AgentFS } from '../../src';
 
 async function main() {
   // Create an agent with an in-memory database
-  const agent = new AgentFS(':memory:');
-  await agent.ready();
+  const agentfs = new AgentFS(':memory:');
+  await agentfs.ready();
 
   console.log('=== Tool Call Tracking Example ===\n');
 
@@ -15,7 +15,7 @@ async function main() {
   await new Promise(resolve => setTimeout(resolve, 100));
 
   const endTime1 = Date.now() / 1000;
-  const searchId = await agent.tools.record(
+  const searchId = await agentfs.tools.record(
     'web_search',
     startTime1,
     endTime1,
@@ -37,7 +37,7 @@ async function main() {
   await new Promise(resolve => setTimeout(resolve, 50));
 
   const endTime2 = Date.now() / 1000;
-  const apiId = await agent.tools.record(
+  const apiId = await agentfs.tools.record(
     'api_call',
     startTime2,
     endTime2,
@@ -54,7 +54,7 @@ async function main() {
     await new Promise(resolve => setTimeout(resolve, 20));
     const end = Date.now() / 1000;
 
-    await agent.tools.record(
+    await agentfs.tools.record(
       'database_query',
       start,
       end,
@@ -66,7 +66,7 @@ async function main() {
 
   // Query tool calls by name
   console.log('4. Querying tool calls by name:');
-  const searches = await agent.tools.getByName('web_search');
+  const searches = await agentfs.tools.getByName('web_search');
   console.log(`   Found ${searches.length} web search calls`);
   if (searches.length > 0) {
     const search = searches[0];
@@ -79,7 +79,7 @@ async function main() {
   // Get recent tool calls
   console.log('5. Getting recent tool calls:');
   const oneMinuteAgo = Math.floor(Date.now() / 1000) - 60;
-  const recent = await agent.tools.getRecent(oneMinuteAgo);
+  const recent = await agentfs.tools.getRecent(oneMinuteAgo);
   console.log(`   Found ${recent.length} calls in the last minute:`);
   recent.forEach(tc => {
     const status = tc.error ? 'failed' : 'success';
@@ -89,7 +89,7 @@ async function main() {
 
   // Get performance statistics
   console.log('6. Performance statistics:');
-  const stats = await agent.tools.getStats();
+  const stats = await agentfs.tools.getStats();
   console.log('   Tool Performance:');
   stats.forEach(stat => {
     console.log(`   - ${stat.name}:`);
@@ -98,7 +98,7 @@ async function main() {
   });
 
   // Clean up
-  await agent.close();
+  await agentfs.close();
   console.log('\n✓ Example completed successfully!');
 }
 
