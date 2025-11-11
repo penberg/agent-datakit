@@ -54,3 +54,26 @@ jobs:
 
     - name: Install dependencies
       run: npm ci
+
+  examples:
+    name: Test Examples
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+
+    - name: Build SDK
+      working-directory: sdk/typescript
+      run: |
+        npm ci
+        npm run build
+
+    - name: Test Mastra Example
+      working-directory: examples/mastra/research-assistant
+      run: |
+        npm ci
+        npm run build

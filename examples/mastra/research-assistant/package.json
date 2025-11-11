@@ -1,0 +1,35 @@
+{
+  "name": "research-assistant",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "dev": "mastra dev",
+    "build": "mastra build",
+    "start": "mastra start",
+    "ask": "tsx cli/ask.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "type": "module",
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "dependencies": {
+    "@mastra/core": "^0.24.0",
+    "@mastra/evals": "^0.14.3",
+    "@mastra/libsql": "^0.16.2",
+    "@mastra/loggers": "^0.10.19",
+    "@mastra/memory": "^0.15.11",
+    "agentfs-sdk": "file:../../../sdk/typescript",
+    "pdf-parse": "^1.1.1",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "tsx": "^4.19.1",
+    "mastra": "^0.18.0",
+    "typescript": "^5.9.3"
+  }
+}
