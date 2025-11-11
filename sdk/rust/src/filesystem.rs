@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use turso::{Builder, Connection, Value};
@@ -246,6 +247,53 @@ impl Filesystem {
         }
     }
 
+    /// Build a Stats object from a database row
+    ///
+    /// The row should contain columns in this order:
+    /// ino, mode, uid, gid, size, atime, mtime, ctime
+    async fn build_stats_from_row(&self, row: &turso::Row, ino: i64) -> Result<Stats> {
+        let nlink = self.get_link_count(ino).await?;
+        Ok(Stats {
+            ino,
+            mode: row
+                .get_value(1)
+                .ok()
+                .and_then(|v| v.as_integer().copied())
+                .unwrap_or(0) as u32,
+            nlink,
+            uid: row
+                .get_value(2)
+                .ok()
+                .and_then(|v| v.as_integer().copied())
+                .unwrap_or(0) as u32,
+            gid: row
+                .get_value(3)
+                .ok()
+                .and_then(|v| v.as_integer().copied())
+                .unwrap_or(0) as u32,
+            size: row
+                .get_value(4)
+                .ok()
+                .and_then(|v| v.as_integer().copied())
+                .unwrap_or(0),
+            atime: row
+                .get_value(5)
+                .ok()
+                .and_then(|v| v.as_integer().copied())
+                .unwrap_or(0),
+            mtime: row
+                .get_value(6)
+                .ok()
+                .and_then(|v| v.as_integer().copied())
+                .unwrap_or(0),
+            ctime: row
+                .get_value(7)
+                .ok()
+                .and_then(|v| v.as_integer().copied())
+                .unwrap_or(0),
+        })
+    }
+
     /// Resolve a path to an inode number
     async fn resolve_path(&self, path: &str) -> Result<Option<i64>> {
         let components = self.split_path(path);
@@ -277,9 +325,10 @@ impl Filesystem {
         Ok(Some(current_ino))
     }
 
-    /// Get file statistics
-    pub async fn stat(&self, path: &str) -> Result<Option<Stats>> {
-        let ino = match self.resolve_path(path).await? {
+    /// Get file statistics without following symlinks
+    pub async fn lstat(&self, path: &str) -> Result<Option<Stats>> {
+        let path = self.normalize_path(path);
+        let ino = match self.resolve_path(&path).await? {
             Some(ino) => ino,
             None => return Ok(None),
         };
@@ -299,53 +348,80 @@ impl Filesystem {
                 .and_then(|v| v.as_integer().copied())
                 .unwrap_or(0);
 
-            // Get the actual link count
-            let nlink = self.get_link_count(ino_val).await?;
-
-            let stats = Stats {
-                ino: ino_val,
-                mode: row
-                    .get_value(1)
-                    .ok()
-                    .and_then(|v| v.as_integer().copied())
-                    .unwrap_or(0) as u32,
-                nlink,
-                uid: row
-                    .get_value(2)
-                    .ok()
-                    .and_then(|v| v.as_integer().copied())
-                    .unwrap_or(0) as u32,
-                gid: row
-                    .get_value(3)
-                    .ok()
-                    .and_then(|v| v.as_integer().copied())
-                    .unwrap_or(0) as u32,
-                size: row
-                    .get_value(4)
-                    .ok()
-                    .and_then(|v| v.as_integer().copied())
-                    .unwrap_or(0),
-                atime: row
-                    .get_value(5)
-                    .ok()
-                    .and_then(|v| v.as_integer().copied())
-                    .unwrap_or(0),
-                mtime: row
-                    .get_value(6)
-                    .ok()
-                    .and_then(|v| v.as_integer().copied())
-                    .unwrap_or(0),
-                ctime: row
-                    .get_value(7)
-                    .ok()
-                    .and_then(|v| v.as_integer().copied())
-                    .unwrap_or(0),
-            };
-
+            let stats = self.build_stats_from_row(&row, ino_val).await?;
             Ok(Some(stats))
         } else {
             Ok(None)
         }
+    }
+
+    /// Get file statistics, following symlinks
+    pub async fn stat(&self, path: &str) -> Result<Option<Stats>> {
+        let path = self.normalize_path(path);
+
+        // Follow symlinks with a maximum depth to prevent infinite loops
+        let mut current_path = path;
+        let max_symlink_depth = 40; // Standard limit for symlink following
+
+        for _ in 0..max_symlink_depth {
+            let ino = match self.resolve_path(&current_path).await? {
+                Some(ino) => ino,
+                None => return Ok(None),
+            };
+
+            let mut rows = self
+                .conn
+                .query(
+                    "SELECT ino, mode, uid, gid, size, atime, mtime, ctime FROM fs_inode WHERE ino = ?",
+                    (ino,),
+                )
+                .await?;
+
+            if let Some(row) = rows.next().await? {
+                let ino_val = row
+                    .get_value(0)
+                    .ok()
+                    .and_then(|v| v.as_integer().copied())
+                    .unwrap_or(0);
+
+                let mode = row
+                    .get_value(1)
+                    .ok()
+                    .and_then(|v| v.as_integer().copied())
+                    .unwrap_or(0) as u32;
+
+                // Check if this is a symlink
+                if (mode & S_IFMT) == S_IFLNK {
+                    // Read the symlink target
+                    let target = self
+                        .readlink(&current_path)
+                        .await?
+                        .ok_or_else(|| anyhow::anyhow!("Symlink has no target"))?;
+
+                    // Resolve target path (handle both absolute and relative paths)
+                    current_path = if target.starts_with('/') {
+                        target
+                    } else {
+                        // Relative path - resolve relative to the symlink's directory
+                        let base_path = Path::new(&current_path);
+                        let parent = base_path.parent().unwrap_or(Path::new("/"));
+                        let joined = parent.join(&target);
+                        joined.to_string_lossy().into_owned()
+                    };
+                    current_path = self.normalize_path(&current_path);
+                    continue; // Follow the symlink
+                }
+
+                // Not a symlink, return the stats
+                let stats = self.build_stats_from_row(&row, ino_val).await?;
+                return Ok(Some(stats));
+            } else {
+                return Ok(None);
+            }
+        }
+
+        // Too many symlinks
+        anyhow::bail!("Too many levels of symbolic links")
     }
 
     /// Create a directory
@@ -548,6 +624,133 @@ impl Filesystem {
         }
 
         Ok(Some(entries))
+    }
+
+    /// Create a symbolic link
+    pub async fn symlink(&self, target: &str, linkpath: &str) -> Result<()> {
+        let linkpath = self.normalize_path(linkpath);
+        let components = self.split_path(&linkpath);
+
+        if components.is_empty() {
+            anyhow::bail!("Cannot create symlink at root");
+        }
+
+        // Get parent directory
+        let parent_path = if components.len() == 1 {
+            "/".to_string()
+        } else {
+            format!("/{}", components[..components.len() - 1].join("/"))
+        };
+
+        let parent_ino = self
+            .resolve_path(&parent_path)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Parent directory does not exist"))?;
+
+        let name = components.last().unwrap();
+
+        // Check if entry already exists
+        if (self.resolve_path(&linkpath).await?).is_some() {
+            anyhow::bail!("Path already exists");
+        }
+
+        // Create inode for symlink
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+
+        let mode = S_IFLNK | 0o777; // Symlinks typically have 777 permissions
+        let size = target.len() as i64;
+
+        self.conn
+            .execute(
+                "INSERT INTO fs_inode (mode, uid, gid, size, atime, mtime, ctime)
+                 VALUES (?, 0, 0, ?, ?, ?, ?)",
+                (mode, size, now, now, now),
+            )
+            .await?;
+
+        // Get the newly created inode
+        let mut rows = self.conn.query("SELECT last_insert_rowid()", ()).await?;
+
+        let ino = if let Some(row) = rows.next().await? {
+            row.get_value(0)
+                .ok()
+                .and_then(|v| v.as_integer().copied())
+                .unwrap_or(0)
+        } else {
+            anyhow::bail!("Failed to get new inode");
+        };
+
+        // Store symlink target
+        self.conn
+            .execute(
+                "INSERT INTO fs_symlink (ino, target) VALUES (?, ?)",
+                (ino, target),
+            )
+            .await?;
+
+        // Create directory entry
+        self.conn
+            .execute(
+                "INSERT INTO fs_dentry (name, parent_ino, ino) VALUES (?, ?, ?)",
+                (name.as_str(), parent_ino, ino),
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    /// Read the target of a symbolic link
+    pub async fn readlink(&self, path: &str) -> Result<Option<String>> {
+        let path = self.normalize_path(path);
+
+        let ino = match self.resolve_path(&path).await? {
+            Some(ino) => ino,
+            None => return Ok(None),
+        };
+
+        // Check if it's a symlink by querying the inode
+        let mut rows = self
+            .conn
+            .query("SELECT mode FROM fs_inode WHERE ino = ?", (ino,))
+            .await?;
+
+        if let Some(row) = rows.next().await? {
+            let mode = row
+                .get_value(0)
+                .ok()
+                .and_then(|v| v.as_integer().copied())
+                .unwrap_or(0) as u32;
+
+            // Check if it's a symlink
+            if (mode & S_IFMT) != S_IFLNK {
+                anyhow::bail!("Not a symbolic link");
+            }
+        } else {
+            return Ok(None);
+        }
+
+        // Read target from fs_symlink table
+        let mut rows = self
+            .conn
+            .query("SELECT target FROM fs_symlink WHERE ino = ?", (ino,))
+            .await?;
+
+        if let Some(row) = rows.next().await? {
+            let target = row
+                .get_value(0)
+                .ok()
+                .and_then(|v| match v {
+                    Value::Text(s) => Some(s.to_string()),
+                    _ => None,
+                })
+                .ok_or_else(|| anyhow::anyhow!("Invalid symlink target"))?;
+            Ok(Some(target))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Remove a file or empty directory
