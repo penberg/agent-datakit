@@ -1,17 +1,38 @@
-use agentfs_sandbox::{
-    init_fd_tables, init_mount_table, init_strace, BindVfs, MountConfig, MountTable, Sandbox,
-    SqliteVfs,
-};
+mod cmd;
+
+// Non-Linux placeholder types for MountConfig (needed for CLI parsing)
+#[cfg(not(target_os = "linux"))]
+mod non_linux {
+    use serde::{Deserialize, Serialize};
+    use std::path::PathBuf;
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub enum MountType {
+        Bind { src: PathBuf },
+        Sqlite { src: PathBuf },
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct MountConfig {
+        pub mount_type: MountType,
+        pub dst: PathBuf,
+    }
+
+    impl std::str::FromStr for MountConfig {
+        type Err = String;
+
+        fn from_str(_s: &str) -> Result<Self, Self::Err> {
+            // This will never be called on non-Linux platforms
+            Err("Mount configuration is only supported on Linux".to_string())
+        }
+    }
+}
+
 use agentfs_sdk::AgentFS;
 use anyhow::{Context, Result as AnyhowResult};
 use clap::{Parser, Subcommand};
-use reverie::Error;
-use reverie_process::Command;
-use reverie_ptrace::TracerBuilder;
-use std::{
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use cmd::MountConfig;
+use std::path::{Path, PathBuf};
 use turso::{Builder, Value};
 
 #[derive(Parser, Debug)]
@@ -292,7 +313,7 @@ async fn cat_filesystem(db_path: &Path, path: &str) -> AnyhowResult<()> {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Error> {
+async fn main() {
     let args = Args::parse();
 
     match args.command {
@@ -320,70 +341,12 @@ async fn main() -> Result<(), Error> {
             }
         },
         Commands::Run {
-            mut mounts,
+            mounts,
             strace,
             command,
             args,
         } => {
-            eprintln!("Welcome to AgentFS!");
-            eprintln!();
-
-            let mut mount_table = MountTable::new();
-
-            // If no mounts specified, add default agent.db mount at /agent
-            if mounts.is_empty() {
-                mounts.push(MountConfig {
-                    mount_type: agentfs_sandbox::MountType::Sqlite {
-                        src: PathBuf::from("agent.db"),
-                    },
-                    dst: PathBuf::from("/agent"),
-                });
-            }
-
-            eprintln!("The following mount points are sandboxed:");
-            for mount_config in &mounts {
-                match &mount_config.mount_type {
-                    agentfs_sandbox::MountType::Bind { src } => {
-                        eprintln!(
-                            " - {} -> {} (host)",
-                            mount_config.dst.display(),
-                            src.display()
-                        );
-
-                        // Create a BindVfs for this bind mount
-                        let vfs = Arc::new(BindVfs::new(src.clone(), mount_config.dst.clone()));
-                        mount_table.add_mount(mount_config.dst.clone(), vfs);
-                    }
-                    agentfs_sandbox::MountType::Sqlite { src } => {
-                        eprintln!(
-                            " - {} -> {} (sqlite)",
-                            mount_config.dst.display(),
-                            src.display()
-                        );
-
-                        // Create a SqliteVfs for this sqlite mount
-                        let vfs = SqliteVfs::new(src, mount_config.dst.clone())
-                            .await
-                            .expect("Failed to create SQLite VFS");
-                        mount_table.add_mount(mount_config.dst.clone(), Arc::new(vfs));
-                    }
-                }
-            }
-            eprintln!();
-
-            init_mount_table(mount_table);
-            init_fd_tables();
-            init_strace(strace);
-
-            let mut cmd = Command::new(command);
-            for arg in args {
-                cmd.arg(arg);
-            }
-
-            let tracer = TracerBuilder::<Sandbox>::new(cmd).spawn().await?;
-
-            let (status, _) = tracer.wait().await?;
-            status.raise_or_exit()
+            cmd::handle_run_command(mounts, strace, command, args).await;
         }
     }
 }

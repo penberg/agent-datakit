@@ -80,6 +80,7 @@ dependencies = [
  "reverie",
  "reverie-process",
  "reverie-ptrace",
+ "serde",
  "tokio",
  "turso",
 ]
