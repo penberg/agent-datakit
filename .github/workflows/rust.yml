@@ -12,9 +12,10 @@ env:
 jobs:
   test:
     name: Test
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
         project: [cli, sdk/rust]
     defaults:
       run:
@@ -29,7 +30,7 @@ jobs:
         components: rustfmt, clippy
 
     - name: Install system dependencies
-      if: matrix.project == 'cli'
+      if: matrix.project == 'cli' && matrix.os == 'ubuntu-latest'
       run: scripts/install-deps.sh
 
     - name: Cache cargo registry
@@ -51,9 +52,11 @@ jobs:
         key: ${{ runner.os }}-cargo-build-target-${{ matrix.project }}-${{ hashFiles('**/Cargo.lock') }}
 
     - name: Check formatting
+      if: matrix.os == 'ubuntu-latest'
       run: cargo fmt -- --check
 
     - name: Run clippy
+      if: matrix.os == 'ubuntu-latest'
       run: cargo clippy -- -D warnings
 
     - name: Build
@@ -63,14 +66,15 @@ jobs:
       run: cargo test --verbose
 
     - name: Run integration tests
-      if: matrix.project == 'cli'
+      if: matrix.project == 'cli' && matrix.os == 'ubuntu-latest'
       run: tests/all.sh
 
   check:
     name: Check
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
         project: [cli, sdk/rust]
     defaults:
       run:
@@ -84,7 +88,7 @@ jobs:
         toolchain: nightly
 
     - name: Install system dependencies
-      if: matrix.project == 'cli'
+      if: matrix.project == 'cli' && matrix.os == 'ubuntu-latest'
       run: scripts/install-deps.sh
 
     - name: Check
