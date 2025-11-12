@@ -124,14 +124,28 @@ def update_package_lock(package_dir: Path) -> bool:
         return False
 
 
-def git_commit_and_tag(root: Path, version: str) -> bool:
+def git_commit_and_tag(root: Path, version: str, components: list) -> bool:
     """Create a git commit and tag for the version update."""
     try:
         print("\nCreating git commit and tag...")
 
-        # Stage all changes
+        # Stage only the files we modified
+        files_to_add = []
+        for component in components:
+            # Add version file (Cargo.toml or package.json)
+            files_to_add.append(str(component['version_file'].relative_to(root)))
+
+            # Add lock file (Cargo.lock or package-lock.json)
+            if 'Cargo.toml' in str(component['version_file']):
+                lock_file = component['lock_dir'] / 'Cargo.lock'
+            else:
+                lock_file = component['lock_dir'] / 'package-lock.json'
+
+            if lock_file.exists():
+                files_to_add.append(str(lock_file.relative_to(root)))
+
         result = subprocess.run(
-            ['git', 'add', '-A'],
+            ['git', 'add'] + files_to_add,
             cwd=root,
             capture_output=True,
             text=True
@@ -295,7 +309,7 @@ def main():
     print("\n✅ All files and lock files updated successfully!")
 
     # Create git commit and tag
-    if not git_commit_and_tag(root, version):
+    if not git_commit_and_tag(root, version, components):
         print("\n❌ Git operations failed", file=sys.stderr)
         sys.exit(1)
 
