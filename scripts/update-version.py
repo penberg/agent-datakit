@@ -306,6 +306,14 @@ def main():
         print("\n❌ Some files failed to update", file=sys.stderr)
         sys.exit(1)
 
+    # Update cli/Cargo.lock again to pick up new versions of workspace dependencies
+    print("\nUpdating cli/Cargo.lock to pick up new dependency versions...")
+    if update_cargo_lock(root / 'cli'):
+        print("✓ Updated cli/Cargo.lock with new dependency versions")
+    else:
+        print("❌ Failed to update cli/Cargo.lock", file=sys.stderr)
+        sys.exit(1)
+
     print("\n✅ All files and lock files updated successfully!")
 
     # Create git commit and tag
