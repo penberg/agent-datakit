@@ -278,10 +278,61 @@ jobs:
 
           gh release create "${{ needs.plan.outputs.tag }}" --target "$RELEASE_COMMIT" $PRERELEASE_FLAG --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
 
+  # Publish TypeScript SDK to npm
+  publish-npm:
+    needs:
+      - plan
+      - host
+    if: ${{ needs.plan.outputs.publishing == 'true' && needs.host.result == 'success' }}
+    runs-on: "ubuntu-22.04"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+      - name: Install dependencies
+        working-directory: sdk/typescript
+        run: npm install
+      - name: Build SDK
+        working-directory: sdk/typescript
+        run: npm run build
+      - name: Publish to npm
+        working-directory: sdk/typescript
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # Publish Rust SDK to crates.io
+  publish-cargo:
+    needs:
+      - plan
+      - host
+    if: ${{ needs.plan.outputs.publishing == 'true' && needs.host.result == 'success' }}
+    runs-on: "ubuntu-22.04"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Publish to crates.io
+        working-directory: sdk/rust
+        run: cargo publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
   announce:
     needs:
       - plan
       - host
+      - publish-npm
+      - publish-cargo
     # use "always() && ..." to allow us to wait for all publish jobs while
     # still allowing individual publish jobs to skip themselves (for prereleases).
     # "host" however must run to completion, no skipping allowed!
