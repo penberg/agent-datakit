@@ -17,3 +17,7 @@ targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-unknown-
 install-path = "CARGO_HOME"
 # Whether to install an updater program
 install-updater = true
+
+# System dependencies
+[dist.dependencies.apt]
+packages = ["libunwind-dev", "liblzma-dev"]
