@@ -2,6 +2,7 @@
 name = "agentfs"
 version = "0.1.0"
 edition = "2021"
+repository = "https://github.com/tursodatabase/agentfs"
 
 [[bin]]
 name = "agentfs"
@@ -21,3 +22,8 @@ agentfs-sandbox = { path = "../sandbox" }
 reverie = { git = "https://github.com/facebookexperimental/reverie" }
 reverie-ptrace = { git = "https://github.com/facebookexperimental/reverie" }
 reverie-process = { git = "https://github.com/facebookexperimental/reverie" }
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
