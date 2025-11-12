@@ -5,30 +5,44 @@ import { ToolCalls } from './toolcalls';
 
 export class AgentFS {
   private db: Database;
-  private initialized: Promise<void>;
 
   public readonly kv: KvStore;
   public readonly fs: Filesystem;
   public readonly tools: ToolCalls;
 
-  constructor(dbPath: string = ':memory:') {
-    this.db = new Database(dbPath);
-    this.initialized = this.initialize();
-    // Create KvStore, Filesystem, and ToolCalls after initialization starts
-    // They will wait for the database to be connected
-    this.kv = new KvStore(this.db);
-    this.fs = new Filesystem(this.db);
-    this.tools = new ToolCalls(this.db);
+  /**
+   * Private constructor - use AgentFS.create() instead
+   */
+  private constructor(db: Database, kv: KvStore, fs: Filesystem, tools: ToolCalls) {
+    this.db = db;
+    this.kv = kv;
+    this.fs = fs;
+    this.tools = tools;
   }
 
-  private async initialize(): Promise<void> {
-    // Connect to the database to ensure it's created
-    await this.db.connect();
+  /**
+   * Create a new AgentFS instance (async factory method)
+   * @param dbPath Path to the database file (defaults to ':memory:')
+   * @returns Fully initialized AgentFS instance
+   */
+  static async create(dbPath: string = ':memory:'): Promise<AgentFS> {
+    const db = new Database(dbPath);
 
-    // Wait for KvStore, Filesystem, and ToolCalls to initialize
-    await this.kv.ready();
-    await this.fs.ready();
-    await this.tools.ready();
+    // Connect to the database to ensure it's created
+    await db.connect();
+
+    // Create subsystems
+    const kv = new KvStore(db);
+    const fs = new Filesystem(db);
+    const tools = new ToolCalls(db);
+
+    // Wait for all subsystems to initialize
+    await kv.ready();
+    await fs.ready();
+    await tools.ready();
+
+    // Return fully initialized instance
+    return new AgentFS(db, kv, fs, tools);
   }
 
   /**
@@ -39,17 +53,9 @@ export class AgentFS {
   }
 
   /**
-   * Wait for initialization to complete
-   */
-  async ready(): Promise<void> {
-    await this.initialized;
-  }
-
-  /**
    * Close the database connection
    */
   async close(): Promise<void> {
-    await this.initialized;
     await this.db.close();
   }
 }

@@ -1,7 +1,7 @@
 import { AgentFS } from "agentfs-sdk";
 
 async function main() {
-  const agentfs = new AgentFS(":memory:");
+  const agentfs = await AgentFS.create(":memory:");
 
   // Write a file
   console.log("Writing file...");
