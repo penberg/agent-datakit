@@ -20,4 +20,5 @@ install-updater = true
 
 # System dependencies
 [dist.dependencies.apt]
-packages = ["libunwind-dev", "liblzma-dev"]
+libunwind-dev = "*"
+liblzma-dev = "*"
