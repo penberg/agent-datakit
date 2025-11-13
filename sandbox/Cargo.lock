@@ -71,7 +71,7 @@ dependencies = [
 
 [[package]]
 name = "agentfs-sandbox"
-version = "0.1.0-pre.9"
+version = "0.1.0-pre.10"
 dependencies = [
  "agentfs-sdk",
  "anyhow",
