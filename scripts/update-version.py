@@ -83,10 +83,12 @@ def update_package_json(file_path: Path, new_version: str) -> bool:
 
 
 def update_cargo_lock(crate_dir: Path) -> bool:
-    """Update Cargo.lock by running cargo update in the crate directory."""
+    """Update Cargo.lock by regenerating it in the crate directory."""
     try:
+        # Use cargo generate-lockfile to force regeneration of Cargo.lock
+        # This ensures path dependencies get their versions updated
         result = subprocess.run(
-            ['cargo', 'update'],
+            ['cargo', 'generate-lockfile'],
             cwd=crate_dir,
             capture_output=True,
             text=True

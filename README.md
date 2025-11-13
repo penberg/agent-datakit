@@ -79,7 +79,7 @@ Use it in your agent code:
 ```typescript
 import { AgentFS } from 'agentfs-sdk';
 
-const agent = new AgentFS('./agent.db');
+const agent = await AgentFS.open('./agent.db');
 
 // Key-value operations
 await agent.kv.set('user:preferences', { theme: 'dark' });

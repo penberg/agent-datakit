@@ -15,7 +15,7 @@ describe('AgentFS Integration Tests', () => {
     dbPath = join(tempDir, 'test.db');
 
     // Initialize AgentFS
-    agent = await AgentFS.create(dbPath);
+    agent = await AgentFS.open(dbPath);
   });
 
   afterEach(() => {
@@ -34,14 +34,14 @@ describe('AgentFS Integration Tests', () => {
     });
 
     it('should initialize with in-memory database', async () => {
-      const memoryAgent = await AgentFS.create(':memory:');
+      const memoryAgent = await AgentFS.open(':memory:');
       expect(memoryAgent).toBeDefined();
       expect(memoryAgent).toBeInstanceOf(AgentFS);
     });
 
     it('should allow multiple instances with different databases', async () => {
       const dbPath2 = join(tempDir, 'test2.db');
-      const agent2 = await AgentFS.create(dbPath2);
+      const agent2 = await AgentFS.open(dbPath2);
 
       expect(agent).toBeDefined();
       expect(agent2).toBeDefined();
@@ -60,12 +60,12 @@ describe('AgentFS Integration Tests', () => {
     it('should reuse existing database file', async () => {
       // Create first instance and write data
       const testDbPath = join(tempDir, 'persistence-test.db');
-      const agent1 = await AgentFS.create(testDbPath);
+      const agent1 = await AgentFS.open(testDbPath);
       await agent1.kv.set('test', 'value1');
       await agent1.close();
 
       // Create second instance with same path - should be able to read the data
-      const agent2 = await AgentFS.create(testDbPath);
+      const agent2 = await AgentFS.open(testDbPath);
       const value = await agent2.kv.get('test');
 
       expect(agent1).toBeDefined();

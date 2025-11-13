@@ -2,7 +2,7 @@ import { AgentFS } from '../../src';
 
 async function main() {
   // Create an agent with an in-memory database
-  const agentfs = await AgentFS.create(':memory:');
+  const agentfs = await AgentFS.open(':memory:');
 
   console.log('=== Tool Call Tracking Example ===\n');
 
