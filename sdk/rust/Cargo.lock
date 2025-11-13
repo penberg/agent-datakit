@@ -49,7 +49,7 @@ dependencies = [
 
 [[package]]
 name = "agentfs-sdk"
-version = "0.1.0-pre.10"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1079,9 +1079,9 @@ dependencies = [
 
 [[package]]
 name = "simsimd"
-version = "6.5.4"
+version = "6.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b631147f2632f13d5696fb53481608187db60bd52832698ac7361aae35f34564"
+checksum = "35185e4ac5ccaa9b8550d0dbdfaca87a6cabd68d5fe2db81ad270692f827bdb1"
 dependencies = [
  "cc",
 ]
