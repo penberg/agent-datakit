@@ -1,19 +1,17 @@
 # AgentFS User Manual
 
-AgentFS provides a secure sandboxed environment for running AI agents with SQLite-backed filesystem storage. It enables agents to interact with files while maintaining complete isolation, auditability, and control.
+AgentFS is a filesystem explicitly designed for AI agents. Just as traditional filesystems provide file and directory abstractions for applications, AgentFS provides the storage abstractions that AI agents need.
 
 ## Overview
 
 AgentFS consists of three main components:
 
-1. **[Agent Filesystem Specification](SPEC.md)** - Defines the SQLite-based filesystem format, including:
-   - Virtual filesystem with Unix-like inode design
-   - Key-value store for agent context and state
-   - Tool call audit trail for debugging and analysis
+AgentFS provides four components:
 
-2. **AgentFS Tool** - Command-line tool for managing and running agents in sandboxed environments
-
-3. **AgentFS SDK** - TypeScript/JavaScript SDK for building agents that work with AgentFS
+1. SDK - TypeScript and Rust libraries for programmatic filesystem access
+2. CLI - Command-line interface for managing agent filesystems
+3. Specification - SQLite-based agent filesystem specification
+4. Sandbox - Linux-compatible execution environment with agent filesystem support (experimental)
 
 ## Quick Start
 
@@ -40,7 +38,7 @@ $ agentfs init --force agent.db
 Created agent filesystem: agent.db
 ```
 
-### 2. Run Programs in the Sandbox
+### 2. Run Programs in the Sandbox (experimental)
 
 Start any program with the agent filesystem mounted at `/agent`:
 
