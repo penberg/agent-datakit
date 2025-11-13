@@ -71,7 +71,7 @@ dependencies = [
 
 [[package]]
 name = "agentfs"
-version = "0.1.0-pre.5"
+version = "0.1.0-pre.6"
 dependencies = [
  "agentfs-sandbox",
  "agentfs-sdk",
@@ -87,7 +87,7 @@ dependencies = [
 
 [[package]]
 name = "agentfs-sandbox"
-version = "0.1.0-pre.5"
+version = "0.1.0-pre.6"
 dependencies = [
  "agentfs-sdk",
  "anyhow",
@@ -103,7 +103,7 @@ dependencies = [
 
 [[package]]
 name = "agentfs-sdk"
-version = "0.1.0-pre.5"
+version = "0.1.0-pre.6"
 dependencies = [
  "anyhow",
  "async-trait",
