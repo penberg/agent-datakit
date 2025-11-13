@@ -20,7 +20,7 @@
 
 > **⚠️ Warning:** This software is ALPHA; use only for development, testing, and experimentation. We are working to make it production-ready, but do not use it for critical data until it is ready.
 
-## What is AgentFS?
+## 🎯 What is AgentFS?
 
 AgentFS is a filesystem explicitly designed for AI agents. Just as traditional filesystems provide file and directory abstractions for applications, AgentFS provides the storage abstractions that AI agents need.
 
@@ -31,7 +31,7 @@ AgentFS provides four components:
 * **[Specification](SPEC.md)** - SQLite-based agent filesystem specification
 * **Sandbox** - Linux-compatible execution environment with agent filesystem support (_experimental_)
 
-## Getting Started
+## 🧑‍💻 Getting Started
 
 ### Using the CLI
 
@@ -101,7 +101,7 @@ await agent.tools.record(
 
 See the **[examples](examples)** directory for more comprehensive examples.
 
-## Why AgentFS?
+## 💡 Why AgentFS?
 
 **Auditability**: Every file operation, tool call, and state change is recorded in SQLite. Query your agent's complete history with SQL to debug issues, analyze behavior, or meet compliance requirements.
 
@@ -113,7 +113,7 @@ See the **[examples](examples)** directory for more comprehensive examples.
 
 **Sandboxing**: Run agents in an isolated Linux environment where filesystem access is controlled and monitored. Perfect for testing untrusted code or enforcing security policies.
 
-## How AgentFS Works?
+## 🔧 How AgentFS Works?
 
 <img align="right" width="40%" src=".github/assets/agentfs-arch.svg">
 
@@ -125,13 +125,13 @@ AgentFS is an agent filesystem accessible through an SDK that provides three ess
 
 At the heart of AgentFS is the [agent filesystem](SPEC.md), a complete SQLite-based storage system for agents implemented using [Turso](https://github.com/tursodatabase/turso). Everything an agent does—every file it creates, every piece of state it stores, every tool it invokes—lives in a single SQLite database file.
 
-## Learn More
+## 📚 Learn More
 
 - **[User Manual](MANUAL.md)** - Complete guide to using the AgentFS CLI and SDK
 - **[Agent Filesystem Specification](SPEC.md)** - Technical specification of the agent filesystem SQLite schema
 - **[SDK Examples](examples/)** - Working code examples using AgentFS
 - **[Turso database](https://github.com/tursodatabase/turso)** - an in-process SQL database, compatible with SQLite.
 
-## License
+## 📝 License
 
 MIT
