@@ -118,8 +118,8 @@ See the **[examples](examples)** directory for more comprehensive examples.
 ## Learn More
 
 - **[User Manual](MANUAL.md)** - Complete guide to using the AgentFS CLI and SDK
-- **[Agent Filesystem Specification](SPEC.md)** - Technical specification of the SQLite schema
-- **[SDK Examples](sdk/examples/)** - Working code examples
+- **[Agent Filesystem Specification](SPEC.md)** - Technical specification of the agent filesystem SQLite schema
+- **[SDK Examples](examples/)** - Working code examples using AgentFS
 - **[Turso database](https://github.com/tursodatabase/turso)** - an in-process SQL database, compatible with SQLite.
 
 ## License
