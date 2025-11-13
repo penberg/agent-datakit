@@ -112,8 +112,6 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       BUILD_MANIFEST_NAME: target/distrib/${{ join(matrix.targets, '-') }}-dist-manifest.json
-      # Disable native CPU tuning for aegis crate on ARM64 to avoid SHA3 extension issues
-      CFLAGS_aarch64_unknown_linux_gnu: "-O3 -ffunction-sections -fdata-sections -fPIC"
     steps:
       - name: enable windows longpaths
         run: |
