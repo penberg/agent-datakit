@@ -22,18 +22,16 @@
 
 ## What is AgentFS?
 
-AgentFS is a filesystem designed specifically for AI agents. Just as traditional filesystems provide file and directory abstractions for applications, AgentFS provides the storage abstractions that AI agents need.
+AgentFS is a filesystem explicitly designed for AI agents. Just as traditional filesystems provide file and directory abstractions for applications, AgentFS provides the storage abstractions that AI agents need.
 
-At the heart of AgentFS is the [agent filesystem](SPEC.md) - a complete SQLite-based storage system for agents implemented using [Turso](https://github.com/tursodatabase/turso). It combines three essential components: a POSIX-like virtual filesystem for files and directories, a key-value store for agent state and context, and an audit trail tool for debugging and analysis. Everything an agent does - every file it creates, every piece of state it stores, every tool it invokes - lives in a single SQLite database file.
+At the heart of AgentFS is the [agent filesystem](SPEC.md), a complete SQLite-based storage system for agents implemented using [Turso](https://github.com/tursodatabase/turso). AgentFS provides three essential interfaces for agent state management: a POSIX-like filesystem for files and directories, a key-value store for agent state and context, and a toolcall audit trail for debugging and analysis. Everything an agent does, every file it creates, every piece of state it stores, every tool it invokes, lives in a single SQLite database file.
 
-## Components
+AgentFS provides four components:
 
-AgentFS provides four main components:
-
-* **[CLI](MANUAL.md)** - Command-line interface for managing agents
-* **SDK** - TypeScript and Rust libraries for programmatic access
-* **Sandbox** - Linux-compatible execution environment
-* **[Specification](SPEC.md)** - SQLite-based filesystem architecture
+* **SDK** - [TypeScript](sdk/typescript) and [Rust](sdk/rust) libraries for programmatic filesystem access
+* **[CLI](MANUAL.md)** - Command-line interface for managing agent filesystems
+* **[Specification](SPEC.md)** - SQLite-based agent filesystem specification
+* **Sandbox** - Linux-compatible execution environment with agent filesystem support (_experimental_)
 
 ## Getting Started
 
@@ -103,7 +101,7 @@ await agent.tools.record(
 );
 ```
 
-See the **[SDK documentation in MANUAL.md](MANUAL.md#agentfs-sdk)** and **[examples](sdk/examples/)** for more details.
+See the **[examples](examples)** directory for more comprehensive examples.
 
 ## Why AgentFS?
 
