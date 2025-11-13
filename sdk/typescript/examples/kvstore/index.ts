@@ -2,7 +2,7 @@ import { AgentFS } from "agentfs-sdk";
 
 async function main() {
   // Initialize AgentFS (in-memory for this example)
-  const agentfs = await AgentFS.create(":memory:");
+  const agentfs = await AgentFS.open(":memory:");
 
   console.log("=== KvStore Example ===\n");
 

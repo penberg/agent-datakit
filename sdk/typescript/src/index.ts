@@ -11,7 +11,7 @@ export class AgentFS {
   public readonly tools: ToolCalls;
 
   /**
-   * Private constructor - use AgentFS.create() instead
+   * Private constructor - use AgentFS.open() instead
    */
   private constructor(db: Database, kv: KvStore, fs: Filesystem, tools: ToolCalls) {
     this.db = db;
@@ -21,11 +21,11 @@ export class AgentFS {
   }
 
   /**
-   * Create a new AgentFS instance (async factory method)
+   * Open an agent filesystem
    * @param dbPath Path to the database file (defaults to ':memory:')
    * @returns Fully initialized AgentFS instance
    */
-  static async create(dbPath: string = ':memory:'): Promise<AgentFS> {
+  static async open(dbPath: string = ':memory:'): Promise<AgentFS> {
     const db = new Database(dbPath);
 
     // Connect to the database to ensure it's created
