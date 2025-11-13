@@ -1,13 +1,13 @@
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[cfg(target_os = "linux")]
 mod run_linux;
 
 use std::path::PathBuf;
 
 // Import MountConfig from the appropriate source
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[cfg(target_os = "linux")]
 pub use agentfs_sandbox::MountConfig;
 
-#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+#[cfg(not(target_os = "linux"))]
 pub use crate::non_linux::MountConfig;
 
 pub async fn handle_run_command(
@@ -16,15 +16,20 @@ pub async fn handle_run_command(
     command: PathBuf,
     args: Vec<String>,
 ) {
-    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    #[cfg(target_os = "linux")]
     {
         run_linux::run_sandbox(mounts, strace, command, args).await;
     }
 
-    #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+    #[cfg(not(target_os = "linux"))]
     {
+        // Suppress unused variable warnings on non-Linux platforms
         let _ = (mounts, strace, command, args);
-        eprintln!("Sandbox is not available on this platform.");
+
+        eprintln!("Error: Sandbox is available only on Linux.");
+        eprintln!();
+        eprintln!("The 'run' command uses ptrace-based system call interception,");
+        eprintln!("which is only supported on Linux.");
         eprintln!();
         eprintln!("However, you can still use the other AgentFS commands:");
         eprintln!("  - 'agentfs init' to create a new agent filesystem");

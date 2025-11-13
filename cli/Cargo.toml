@@ -16,8 +16,8 @@ anyhow = "1.0"
 turso = "0.3.2"
 serde = { version = "1.0", features = ["derive"] }
 
-# Dependencies for sandbox functionality.
-[target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
+# Linux-only dependencies for sandbox functionality
+[target.'cfg(target_os = "linux")'.dependencies]
 agentfs-sandbox = { path = "../sandbox" }
 reverie = { git = "https://github.com/facebookexperimental/reverie" }
 reverie-ptrace = { git = "https://github.com/facebookexperimental/reverie" }
