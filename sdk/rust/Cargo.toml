@@ -1,6 +1,6 @@
 [package]
 name = "agentfs-sdk"
-version = "0.1.0-pre.6"
+version = "0.1.0-pre.7"
 edition = "2021"
 description = "AgentFS SDK for Rust"
 license = "MIT"
