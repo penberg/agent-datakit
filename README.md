@@ -31,6 +31,7 @@ AgentFS provides four components:
 * **[Specification](SPEC.md)** - SQLite-based agent filesystem specification
 * **Sandbox** - Linux-compatible execution environment with agent filesystem support (_experimental_)
 
+Read more about the motivation for AgentFS in the announcement [blog post](https://turso.tech/blog/agentfs).
 ## 🧑‍💻 Getting Started
 
 ### Using the CLI
