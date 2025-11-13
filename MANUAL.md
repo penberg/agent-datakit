@@ -203,52 +203,6 @@ agentfs fs cat hello.txt
 agentfs fs cat /artifacts/report.txt
 ```
 
-## How AgentFS Works
-
-### Architecture
-
-```
-┌─────────────────────────────────────────┐
-│         Agent Application               │
-├─────────────────────────────────────────┤
-│      AgentFS Sandbox (Hermit)           │
-│   Filesystem Interception Layer         │
-├─────────────────────────────────────────┤
-│       /agent mount point                │
-├─────────────────────────────────────────┤
-│    Agent Filesystem (agent.db)          │
-│         SQLite Database                 │
-└─────────────────────────────────────────┘
-```
-
-### Filesystem Interception
-
-AgentFS uses [Hermit](https://github.com/facebookexperimental/hermit), a deterministic execution sandbox that intercepts all system calls. When a program running inside AgentFS attempts filesystem operations on `/agent/*`, AgentFS:
-
-1. **Intercepts** the system call (open, read, write, etc.)
-2. **Translates** the path to a SQLite query
-3. **Executes** the operation on the agent database
-4. **Returns** results to the program
-
-This is completely transparent to the application - it sees `/agent` as a normal POSIX filesystem.
-
-### SQLite as a Filesystem
-
-The agent filesystem uses a Unix-like inode design implemented in SQLite. See the [Agent Filesystem Specification](SPEC.md) for complete details.
-
-**Key features:**
-- **Inodes** - Each file/directory has a unique inode number and metadata
-- **Directory entries** - Map names to inodes (enables hard links)
-- **Data chunks** - File contents stored as BLOBs
-- **Metadata** - Unix-style permissions, timestamps, ownership
-
-**Benefits:**
-- **Single file** - Entire filesystem in one `.db` file
-- **Snapshotting** - Copy the file to snapshot complete state
-- **Auditability** - Query filesystem history with SQL
-- **ACID transactions** - Consistency guarantees
-- **Portability** - Works everywhere SQLite works
-
 ## AgentFS SDK
 
 The AgentFS SDK provides a TypeScript/JavaScript interface for building agents that use the agent filesystem. It offers three main APIs for working with the agent database:
@@ -664,86 +618,11 @@ Or use the SQL interface from your application to analyze agent behavior, search
 
 See the [Agent Filesystem Specification](SPEC.md) for the complete schema.
 
-## Use Cases
-
-### 1. Agent Development and Testing
-
-- Run agents in isolated environments
-- Snapshot state before risky operations
-- Replay agent execution from checkpoints
-- Debug by querying filesystem history
-
-### 2. Production Agent Deployment
-
-- Monitor agent filesystem access
-- Audit all file operations
-- Track tool invocations and errors
-- Maintain complete operation history
-
-### 3. Multi-Agent Systems
-
-- Each agent gets its own `.db` file
-- Share data by mounting common databases
-- Analyze agent interactions via SQL queries
-- Compare agent behavior across runs
-
-### 4. Agent Training and Fine-tuning
-
-- Capture agent decisions and outcomes
-- Query successful vs. failed operations
-- Extract training data from agent history
-- Analyze tool usage patterns
-
-## Security Considerations
-
-**Sandboxing:**
-- AgentFS intercepts filesystem operations but doesn't provide full security isolation
-- Programs can still make network calls, execute system commands, etc.
-- Use additional security measures (containers, VMs, network policies) for untrusted code
-
-**Database Security:**
-- Agent databases are SQLite files - protect them like any sensitive data
-- Use file permissions to restrict access
-- Encrypt databases at rest if needed
-- Be cautious with sensitive data in tool call parameters/results
-
-**Determinism:**
-- The Hermit sandbox provides deterministic execution
-- Same inputs produce same outputs (useful for testing)
-- Some non-deterministic operations may be restricted
-
-## Troubleshooting
-
-### "agent.db already exists"
-
-Use `--force` to overwrite:
-```bash
-agentfs init --force agent.db
-```
-
-### Program can't find files in /agent
-
-Make sure you're running the program with `agentfs run`:
-```bash
-agentfs run /bin/bash
-```
-
-Files written to `/agent` inside the sandbox are stored in `agent.db`, not on the host filesystem.
-
-### SQLite database is locked
-
-Only one process can write to the database at a time. Make sure you don't have multiple `agentfs run` instances using the same `agent.db` file.
-
-### Permission denied errors
-
-Check file permissions in the agent filesystem using `agentfs fs ls -l` (once implemented) or by querying the `fs_inode` table directly.
-
 ## Learn More
 
 - **[Agent Filesystem Specification](SPEC.md)** - Complete technical specification of the filesystem schema
 - **[SDK Examples](sdk/examples/)** - Working code examples
 - **[README](README.md)** - Project overview and motivation
-- **[Hermit Project](https://github.com/facebookexperimental/hermit)** - The underlying sandbox technology
 
 ## Contributing
 
