@@ -24,8 +24,6 @@
 
 AgentFS is a filesystem explicitly designed for AI agents. Just as traditional filesystems provide file and directory abstractions for applications, AgentFS provides the storage abstractions that AI agents need.
 
-At the heart of AgentFS is the [agent filesystem](SPEC.md), a complete SQLite-based storage system for agents implemented using [Turso](https://github.com/tursodatabase/turso). AgentFS provides three essential interfaces for agent state management: a POSIX-like filesystem for files and directories, a key-value store for agent state and context, and a toolcall audit trail for debugging and analysis. Everything an agent does, every file it creates, every piece of state it stores, every tool it invokes, lives in a single SQLite database file.
-
 AgentFS provides four components:
 
 * **SDK** - [TypeScript](sdk/typescript) and [Rust](sdk/rust) libraries for programmatic filesystem access
@@ -114,6 +112,18 @@ See the **[examples](examples)** directory for more comprehensive examples.
 **Simplicity**: No configuration files, no database servers, no distributed systems. Just a single file and a simple API.
 
 **Sandboxing**: Run agents in an isolated Linux environment where filesystem access is controlled and monitored. Perfect for testing untrusted code or enforcing security policies.
+
+## How AgentFS Works?
+
+<img align="right" width="40%" src=".github/assets/agentfs-arch.svg">
+
+AgentFS is an agent filesystem accessible through an SDK that provides three essential interfaces for agent state management:
+
+* **Filesystem:** A POSIX-like filesystem for files and directories
+* **Key-Value:** A key-value store for agent state and context
+* **Toolcall:** A toolcall audit trail for debugging and analysis
+
+At the heart of AgentFS is the [agent filesystem](SPEC.md), a complete SQLite-based storage system for agents implemented using [Turso](https://github.com/tursodatabase/turso). Everything an agent does—every file it creates, every piece of state it stores, every tool it invokes—lives in a single SQLite database file.
 
 ## Learn More
 
