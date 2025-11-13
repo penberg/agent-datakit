@@ -42,7 +42,17 @@ $ agentfs init
 Created agent filesystem: agent.db
 ```
 
-Run a program in the sandbox with the agent filesystem mounted at `/agent`:
+Inspect the agent filesystem from outside:
+
+```bash
+$ agentfs fs ls
+f hello.txt
+
+$ agentfs fs cat hello.txt
+hello from agent
+```
+
+You can also run a program in an experimental sandbox with the agent filesystem mounted at `/agent`:
 
 ```bash
 $ agentfs run /bin/bash
@@ -52,16 +62,6 @@ $ echo "hello from agent" > /agent/hello.txt
 $ cat /agent/hello.txt
 hello from agent
 $ exit
-```
-
-Inspect the agent filesystem from outside:
-
-```bash
-$ agentfs fs ls
-f hello.txt
-
-$ agentfs fs cat hello.txt
-hello from agent
 ```
 
 Read the **[User Manual](MANUAL.md)** for complete documentation.
