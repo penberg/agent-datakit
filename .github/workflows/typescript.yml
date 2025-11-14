@@ -83,3 +83,9 @@ jobs:
       run: |
         npm ci
         npm run build
+
+    - name: Test OpenAI Agents Example
+      working-directory: examples/openai-agents/research-assistant
+      run: |
+        npm ci
+        npm run build

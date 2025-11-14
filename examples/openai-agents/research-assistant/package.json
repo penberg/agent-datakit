@@ -1,0 +1,40 @@
+{
+  "name": "research-assistant-openai-agents",
+  "version": "1.0.0",
+  "description": "A research assistant built with OpenAI Agents SDK that answers database research questions",
+  "type": "module",
+  "main": "dist/cli.js",
+  "bin": {
+    "research-assistant": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "ask": "tsx src/cli.ts",
+    "dev": "tsx src/cli.ts"
+  },
+  "keywords": [
+    "openai",
+    "agent",
+    "research",
+    "database",
+    "ai"
+  ],
+  "author": "",
+  "license": "ISC",
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "dependencies": {
+    "@openai/agents": "^0.3.1",
+    "agentfs-sdk": "file:../../../sdk/typescript",
+    "dotenv": "^16.4.7",
+    "pdf-parse": "^1.1.1",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "@types/pdf-parse": "^1.1.4",
+    "tsx": "^4.19.1",
+    "typescript": "^5.9.3"
+  }
+}
