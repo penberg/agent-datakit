@@ -32,6 +32,7 @@ use agentfs_sdk::AgentFS;
 use anyhow::{Context, Result as AnyhowResult};
 use clap::{Parser, Subcommand};
 use cmd::MountConfig;
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use turso::{Builder, Value};
 
@@ -124,7 +125,6 @@ async fn init_database(db_path: &Path, force: bool) -> AnyhowResult<()> {
 }
 
 async fn ls_filesystem(db_path: &Path, path: &str) -> AnyhowResult<()> {
-    // Check if file exists
     if !db_path.exists() {
         anyhow::bail!("Filesystem '{}' does not exist", db_path.display());
     }
@@ -139,67 +139,80 @@ async fn ls_filesystem(db_path: &Path, path: &str) -> AnyhowResult<()> {
     let conn = db.connect().context("Failed to connect to filesystem")?;
 
     const ROOT_INO: i64 = 1;
+    const S_IFMT: u32 = 0o170000;
+    const S_IFDIR: u32 = 0o040000;
 
-    // For now, only support root directory
     if path != "/" {
         anyhow::bail!("Only root directory (/) is currently supported");
     }
 
-    let parent_ino = ROOT_INO;
+    let mut queue: VecDeque<(i64, String)> = VecDeque::new();
+    queue.push_back((ROOT_INO, String::new()));
 
-    // Query directory entries
-    let query = format!(
-        "SELECT d.name, i.mode FROM fs_dentry d
-         JOIN fs_inode i ON d.ino = i.ino
-         WHERE d.parent_ino = {}
-         ORDER BY d.name",
-        parent_ino
-    );
+    while let Some((parent_ino, prefix)) = queue.pop_front() {
+        let query = format!(
+            "SELECT d.name, d.ino, i.mode FROM fs_dentry d
+             JOIN fs_inode i ON d.ino = i.ino
+             WHERE d.parent_ino = {}
+             ORDER BY d.name",
+            parent_ino
+        );
 
-    let mut rows = conn
-        .query(&query, ())
-        .await
-        .context("Failed to query directory entries")?;
+        let mut rows = conn
+            .query(&query, ())
+            .await
+            .context("Failed to query directory entries")?;
 
-    let mut entries = Vec::new();
-    while let Some(row) = rows.next().await.context("Failed to fetch row")? {
-        let name: String = row
-            .get_value(0)
-            .ok()
-            .and_then(|v| {
-                if let Value::Text(s) = v {
-                    Some(s.clone())
-                } else {
-                    None
-                }
-            })
-            .unwrap_or_default();
+        let mut entries = Vec::new();
+        while let Some(row) = rows.next().await.context("Failed to fetch row")? {
+            let name: String = row
+                .get_value(0)
+                .ok()
+                .and_then(|v| {
+                    if let Value::Text(s) = v {
+                        Some(s.clone())
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_default();
 
-        let mode: u32 = row
-            .get_value(1)
-            .ok()
-            .and_then(|v| v.as_integer().copied())
-            .unwrap_or(0) as u32;
+            let ino: i64 = row
+                .get_value(1)
+                .ok()
+                .and_then(|v| v.as_integer().copied())
+                .unwrap_or(0);
 
-        entries.push((name, mode));
-    }
+            let mode: u32 = row
+                .get_value(2)
+                .ok()
+                .and_then(|v| v.as_integer().copied())
+                .unwrap_or(0) as u32;
 
-    // Print entries
-    for (name, mode) in entries {
-        // Determine file type
-        const S_IFMT: u32 = 0o170000;
-        const S_IFDIR: u32 = 0o040000;
+            entries.push((name, ino, mode));
+        }
 
-        let type_char = if mode & S_IFMT == S_IFDIR { 'd' } else { 'f' };
+        for (name, ino, mode) in entries {
+            let is_dir = mode & S_IFMT == S_IFDIR;
+            let type_char = if is_dir { 'd' } else { 'f' };
+            let full_path = if prefix.is_empty() {
+                name.clone()
+            } else {
+                format!("{}/{}", prefix, name)
+            };
 
-        println!("{} {}", type_char, name);
+            println!("{} {}", type_char, full_path);
+
+            if is_dir {
+                queue.push_back((ino, full_path));
+            }
+        }
     }
 
     Ok(())
 }
 
 async fn cat_filesystem(db_path: &Path, path: &str) -> AnyhowResult<()> {
-    // Check if file exists
     if !db_path.exists() {
         anyhow::bail!("Filesystem '{}' does not exist", db_path.display());
     }
@@ -215,7 +228,6 @@ async fn cat_filesystem(db_path: &Path, path: &str) -> AnyhowResult<()> {
 
     const ROOT_INO: i64 = 1;
 
-    // Resolve the path to an inode
     let path_components: Vec<&str> = path
         .trim_start_matches('/')
         .split('/')
@@ -225,7 +237,6 @@ async fn cat_filesystem(db_path: &Path, path: &str) -> AnyhowResult<()> {
     let mut current_ino = ROOT_INO;
 
     for component in path_components {
-        // Query for the next component
         let query = format!(
             "SELECT ino FROM fs_dentry WHERE parent_ino = {} AND name = '{}'",
             current_ino, component
@@ -247,7 +258,6 @@ async fn cat_filesystem(db_path: &Path, path: &str) -> AnyhowResult<()> {
         }
     }
 
-    // Check if it's a regular file
     let query = format!("SELECT mode FROM fs_inode WHERE ino = {}", current_ino);
     let mut rows = conn
         .query(&query, ())
@@ -274,7 +284,6 @@ async fn cat_filesystem(db_path: &Path, path: &str) -> AnyhowResult<()> {
         anyhow::bail!("File not found: {}", path);
     }
 
-    // Read all data chunks for this file
     let query = format!(
         "SELECT data FROM fs_data WHERE ino = {} ORDER BY offset",
         current_ino
