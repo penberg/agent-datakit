@@ -77,3 +77,9 @@ jobs:
       run: |
         npm ci
         npm run build
+
+    - name: Test Claude Agent SDK Example
+      working-directory: examples/claude-agent/research-assistant
+      run: |
+        npm ci
+        npm run build
