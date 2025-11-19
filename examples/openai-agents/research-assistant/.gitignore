@@ -3,3 +3,6 @@ dist/
 .env
 *.db
 *.log
+
+# AgentFS local databases
+.agentfs/

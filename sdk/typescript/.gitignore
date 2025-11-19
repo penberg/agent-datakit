@@ -19,6 +19,9 @@ dist/
 *.db-shm
 *.db-wal
 
+# AgentFS local databases
+.agentfs/
+
 # Logs
 *.log
 npm-debug.log*
