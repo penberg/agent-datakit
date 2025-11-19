@@ -6,3 +6,6 @@ dist
 .env
 *.db
 *.db-*
+
+# AgentFS local databases
+.agentfs/
