@@ -3,6 +3,8 @@ import { existsSync, mkdirSync } from 'fs';
 import { KvStore } from './kvstore';
 import { Filesystem } from './filesystem';
 import { ToolCalls } from './toolcalls';
+import type { SyncProvider, TursoSyncFactory } from './sync';
+import { TursoSyncProvider } from './providers/turso';
 
 /**
  * Configuration options for opening an AgentFS instance
@@ -14,8 +16,13 @@ export interface AgentFSOptions {
    * - If omitted: Uses ephemeral in-memory database
    */
   id?: string;
-  // Future: sync configuration will be added here
-  // sync?: SyncConfig;
+
+  /**
+   * Optional sync configuration
+   * - Pass a TursoSyncFactory from tursoSync() for Turso Cloud sync
+   * - Pass a custom SyncProvider for other backends
+   */
+  sync?: TursoSyncFactory | SyncProvider;
 }
 
 export class AgentFS {
@@ -24,15 +31,23 @@ export class AgentFS {
   public readonly kv: KvStore;
   public readonly fs: Filesystem;
   public readonly tools: ToolCalls;
+  public readonly sync?: SyncProvider;
 
   /**
    * Private constructor - use AgentFS.open() instead
    */
-  private constructor(db: Database, kv: KvStore, fs: Filesystem, tools: ToolCalls) {
+  private constructor(
+    db: Database,
+    kv: KvStore,
+    fs: Filesystem,
+    tools: ToolCalls,
+    sync?: SyncProvider
+  ) {
     this.db = db;
     this.kv = kv;
     this.fs = fs;
     this.tools = tools;
+    this.sync = sync;
   }
 
   /**
@@ -47,6 +62,13 @@ export class AgentFS {
    *
    * // Ephemeral in-memory database
    * const agent = await AgentFS.open();
+   *
+   * // With Turso Cloud sync
+   * import { tursoSync } from 'agentfs-sdk';
+   * const agent = await AgentFS.open({
+   *   id: 'my-agent',
+   *   sync: tursoSync()
+   * });
    * ```
    */
   static async open(options?: AgentFSOptions): Promise<AgentFS> {
@@ -60,7 +82,7 @@ export class AgentFS {
       );
     }
 
-    const { id } = options || {};
+    const { id, sync } = options || {};
 
     // Determine database path based on id
     let dbPath: string;
@@ -91,8 +113,22 @@ export class AgentFS {
     await fs.ready();
     await tools.ready();
 
+    // Initialize sync if configured
+    let syncProvider: SyncProvider | undefined;
+    if (sync) {
+      if ('__type' in sync && sync.__type === 'turso-sync-factory') {
+        // Turso sync factory
+        syncProvider = new TursoSyncProvider(db, id || 'default', sync.config);
+      } else {
+        // Custom sync provider
+        syncProvider = sync as SyncProvider;
+      }
+
+      await syncProvider.initialize();
+    }
+
     // Return fully initialized instance
-    return new AgentFS(db, kv, fs, tools);
+    return new AgentFS(db, kv, fs, tools, syncProvider);
   }
 
   /**
@@ -103,9 +139,12 @@ export class AgentFS {
   }
 
   /**
-   * Close the database connection
+   * Close the database connection and cleanup sync
    */
   async close(): Promise<void> {
+    if (this.sync) {
+      await this.sync.cleanup();
+    }
     await this.db.close();
   }
 }
@@ -115,3 +154,5 @@ export { Filesystem } from './filesystem';
 export type { Stats } from './filesystem';
 export { ToolCalls } from './toolcalls';
 export type { ToolCall, ToolCallStats } from './toolcalls';
+export { tursoSync } from './sync';
+export type { SyncProvider, TursoSyncConfig, SyncStatus } from './sync';

@@ -1,6 +1,6 @@
 {
   "name": "agentfs-sdk",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "AgentFS SDK",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -20,7 +20,9 @@
     "turso",
     "sqlite",
     "key-value",
-    "filesystem"
+    "filesystem",
+    "sync",
+    "cloud"
   ],
   "author": "",
   "license": "MIT",
@@ -32,6 +34,10 @@
   },
   "dependencies": {
     "@tursodatabase/database": "^0.3.2"
+  },
+  "optionalDependencies": {
+    "@tursodatabase/api": "^1.9.0",
+    "@tursodatabase/sync": "^0.3.2"
   },
   "files": [
     "dist"
