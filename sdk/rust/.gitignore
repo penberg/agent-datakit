@@ -1,1 +1,4 @@
 target
+
+# AgentFS local databases
+.agentfs/

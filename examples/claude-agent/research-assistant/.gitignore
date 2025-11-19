@@ -8,10 +8,8 @@ dist/
 .env
 .env.local
 
-# AgentFS database
-agentfs.db
-agentfs.db-shm
-agentfs.db-wal
+# AgentFS local databases
+.agentfs/
 
 # IDE
 .vscode/

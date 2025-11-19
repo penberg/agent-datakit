@@ -1,7 +1,8 @@
 import { AgentFS } from "agentfs-sdk";
 
 async function main() {
-  const agentfs = await AgentFS.open(":memory:");
+  // Initialize AgentFS with persistent storage
+  const agentfs = await AgentFS.open({ id: "filesystem-demo" });
 
   // Write a file
   console.log("Writing file...");
