@@ -39,17 +39,26 @@ Read more about the motivation for AgentFS in the announcement [blog post](https
 Initialize an agent filesystem:
 
 ```bash
-$ agentfs init
-Created agent filesystem: agent.db
+$ agentfs init my-agent
+Created agent filesystem: .agentfs/my-agent.db
+Agent ID: my-agent
 ```
 
-Inspect the agent filesystem from outside:
+Inspect the agent filesystem:
 
 ```bash
-$ agentfs fs ls
+$ agentfs fs ls my-agent
+Using agent: my-agent
 f hello.txt
 
-$ agentfs fs cat hello.txt
+$ agentfs fs cat my-agent hello.txt
+hello from agent
+```
+
+You can also use a database path directly:
+
+```bash
+$ agentfs fs cat .agentfs/my-agent.db hello.txt
 hello from agent
 ```
 
@@ -80,7 +89,12 @@ Use it in your agent code:
 ```typescript
 import { AgentFS } from 'agentfs-sdk';
 
-const agent = await AgentFS.open('./agent.db');
+// Persistent storage with identifier
+const agent = await AgentFS.open({ id: 'my-agent' });
+// Creates: .agentfs/my-agent.db
+
+// Or use ephemeral in-memory database
+const ephemeralAgent = await AgentFS.open();
 
 // Key-value operations
 await agent.kv.set('user:preferences', { theme: 'dark' });

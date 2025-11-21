@@ -48,9 +48,8 @@ struct Args {
 enum Commands {
     /// Initialize a new agent filesystem
     Init {
-        /// SQLite file to create (default: agent.db)
-        #[arg(default_value = "agent.db")]
-        filename: PathBuf,
+        /// Agent identifier (if not provided, generates a unique one)
+        id: Option<String>,
 
         /// Overwrite existing file if it exists
         #[arg(long)]
@@ -83,51 +82,26 @@ enum Commands {
 enum FsCommands {
     /// List files in the filesystem
     Ls {
-        /// Filesystem to use (default: agent.db)
-        #[arg(long = "filesystem", default_value = "agent.db")]
-        filesystem: PathBuf,
+        /// Agent ID or database path
+        id_or_path: String,
 
         /// Path to list (default: /)
         #[arg(default_value = "/")]
-        path: String,
+        fs_path: String,
     },
     /// Display file contents
     Cat {
-        /// Filesystem to use (default: agent.db)
-        #[arg(long = "filesystem", default_value = "agent.db")]
-        filesystem: PathBuf,
+        /// Agent ID or database path
+        id_or_path: String,
 
-        /// Path to the file
-        path: String,
+        /// Path to the file in the filesystem
+        file_path: String,
     },
 }
 
-async fn init_database(db_path: &Path, force: bool) -> AnyhowResult<()> {
-    // Check if file already exists
-    if db_path.exists() && !force {
-        anyhow::bail!(
-            "File '{}' already exists. Use --force to overwrite.",
-            db_path.display()
-        );
-    }
-
-    let db_path_str = db_path.to_str().context("Invalid database path")?;
-
-    // Use the SDK to initialize the database - this ensures consistency
-    // with how `agentfs run` initializes the database
-    AgentFS::new(db_path_str)
-        .await
-        .context("Failed to initialize database")?;
-
-    eprintln!("Created agent filesystem: {}", db_path.display());
-
-    Ok(())
-}
-
-async fn ls_filesystem(db_path: &Path, path: &str) -> AnyhowResult<()> {
-    if !db_path.exists() {
-        anyhow::bail!("Filesystem '{}' does not exist", db_path.display());
-    }
+async fn ls_filesystem(id: String, path: &str) -> AnyhowResult<()> {
+    let (agent_id, db_path) = resolve_agent_database(id)?;
+    eprintln!("Using agent: {}", agent_id);
 
     let db_path_str = db_path.to_str().context("Invalid filesystem path")?;
 
@@ -212,10 +186,8 @@ async fn ls_filesystem(db_path: &Path, path: &str) -> AnyhowResult<()> {
     Ok(())
 }
 
-async fn cat_filesystem(db_path: &Path, path: &str) -> AnyhowResult<()> {
-    if !db_path.exists() {
-        anyhow::bail!("Filesystem '{}' does not exist", db_path.display());
-    }
+async fn cat_filesystem(id: String, path: &str) -> AnyhowResult<()> {
+    let (_agent_id, db_path) = resolve_agent_database(id)?;
 
     let db_path_str = db_path.to_str().context("Invalid filesystem path")?;
 
@@ -321,28 +293,120 @@ async fn cat_filesystem(db_path: &Path, path: &str) -> AnyhowResult<()> {
     Ok(())
 }
 
+/// Validates an agent ID to prevent path traversal and ensure safe filesystem operations.
+/// Returns true if the ID contains only alphanumeric characters, hyphens, and underscores.
+fn validate_agent_id(id: &str) -> bool {
+    !id.is_empty()
+        && id
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+}
+
+fn resolve_agent_database(id_or_path: String) -> AnyhowResult<(String, PathBuf)> {
+    let agentfs_dir = Path::new(".agentfs");
+    let path = PathBuf::from(&id_or_path);
+
+    // First check if it's an existing file
+    if path.exists() {
+        let id = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+        Ok((id, path))
+    } else {
+        // Treat as an agent ID - validate for safety
+        if !validate_agent_id(&id_or_path) {
+            anyhow::bail!(
+                "Invalid agent ID '{}'. Agent IDs must contain only alphanumeric characters, hyphens, and underscores.",
+                id_or_path
+            );
+        }
+
+        // Look in .agentfs/
+        let db_path = agentfs_dir.join(format!("{}.db", id_or_path));
+        if !db_path.exists() {
+            anyhow::bail!(
+                "Agent '{}' not found at '{}'",
+                id_or_path,
+                db_path.display()
+            );
+        }
+        Ok((id_or_path, db_path))
+    }
+}
+
+async fn init_database(id: Option<String>, force: bool) -> AnyhowResult<()> {
+    use agentfs_sdk::AgentFSOptions;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    // Generate ID if not provided
+    let id = id.unwrap_or_else(|| {
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        format!("agent-{}", timestamp)
+    });
+
+    // Validate agent ID for safety
+    if !validate_agent_id(&id) {
+        anyhow::bail!(
+            "Invalid agent ID '{}'. Agent IDs must contain only alphanumeric characters, hyphens, and underscores.",
+            id
+        );
+    }
+
+    // Check if agent already exists
+    let db_path = Path::new(".agentfs").join(format!("{}.db", id));
+    if db_path.exists() && !force {
+        anyhow::bail!(
+            "Agent '{}' already exists at '{}'. Use --force to overwrite.",
+            id,
+            db_path.display()
+        );
+    }
+
+    // Use the SDK to initialize the database - this ensures consistency
+    // The SDK will create .agentfs directory and database file
+    AgentFS::open(AgentFSOptions::with_id(&id))
+        .await
+        .context("Failed to initialize database")?;
+
+    eprintln!("Created agent filesystem: {}", db_path.display());
+    eprintln!("Agent ID: {}", id);
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
 
     match args.command {
-        Commands::Init { filename, force } => {
-            if let Err(e) = init_database(&filename, force).await {
+        Commands::Init { id, force } => {
+            if let Err(e) = init_database(id, force).await {
                 eprintln!("Error: {}", e);
                 std::process::exit(1);
             }
             std::process::exit(0);
         }
         Commands::Fs { command } => match command {
-            FsCommands::Ls { filesystem, path } => {
-                if let Err(e) = ls_filesystem(&filesystem, &path).await {
+            FsCommands::Ls {
+                id_or_path,
+                fs_path,
+            } => {
+                if let Err(e) = ls_filesystem(id_or_path, &fs_path).await {
                     eprintln!("Error: {}", e);
                     std::process::exit(1);
                 }
                 std::process::exit(0);
             }
-            FsCommands::Cat { filesystem, path } => {
-                if let Err(e) = cat_filesystem(&filesystem, &path).await {
+            FsCommands::Cat {
+                id_or_path,
+                file_path,
+            } => {
+                if let Err(e) = cat_filesystem(id_or_path, &file_path).await {
                     eprintln!("Error: {}", e);
                     std::process::exit(1);
                 }

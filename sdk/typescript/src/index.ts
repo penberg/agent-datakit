@@ -1,7 +1,22 @@
 import { Database } from '@tursodatabase/database';
+import { existsSync, mkdirSync } from 'fs';
 import { KvStore } from './kvstore';
 import { Filesystem } from './filesystem';
 import { ToolCalls } from './toolcalls';
+
+/**
+ * Configuration options for opening an AgentFS instance
+ */
+export interface AgentFSOptions {
+  /**
+   * Optional unique identifier for the agent.
+   * - If provided: Creates persistent storage at `.agentfs/{id}.db`
+   * - If omitted: Uses ephemeral in-memory database
+   */
+  id?: string;
+  // Future: sync configuration will be added here
+  // sync?: SyncConfig;
+}
 
 export class AgentFS {
   private db: Database;
@@ -22,10 +37,51 @@ export class AgentFS {
 
   /**
    * Open an agent filesystem
-   * @param dbPath Path to the database file (defaults to ':memory:')
+   * @param options Configuration options (optional id for persistent storage)
    * @returns Fully initialized AgentFS instance
+   * @example
+   * ```typescript
+   * // Persistent storage
+   * const agent = await AgentFS.open({ id: 'my-agent' });
+   * // Creates: .agentfs/my-agent.db
+   *
+   * // Ephemeral in-memory database
+   * const agent = await AgentFS.open();
+   * ```
    */
-  static async open(dbPath: string = ':memory:'): Promise<AgentFS> {
+  static async open(options?: AgentFSOptions): Promise<AgentFS> {
+    // Error handling for old API usage
+    if (typeof options === 'string') {
+      throw new Error(
+        `AgentFS.open() no longer accepts string paths. ` +
+        `Please use: AgentFS.open({ id: 'your-id' }) for persistent storage, ` +
+        `or AgentFS.open() for ephemeral in-memory database.`
+      );
+    }
+
+    const { id } = options || {};
+
+    // Determine database path based on id
+    let dbPath: string;
+    if (!id) {
+      // No id = ephemeral in-memory database
+      dbPath = ':memory:';
+    } else {
+      // Validate agent ID to prevent path traversal attacks
+      if (!/^[a-zA-Z0-9_-]+$/.test(id)) {
+        throw new Error(
+          'Agent ID must contain only alphanumeric characters, hyphens, and underscores'
+        );
+      }
+
+      // Ensure .agentfs directory exists
+      const dir = '.agentfs';
+      if (!existsSync(dir)) {
+        mkdirSync(dir, { recursive: true });
+      }
+      dbPath = `${dir}/${id}.db`;
+    }
+
     const db = new Database(dbPath);
 
     // Connect to the database to ensure it's created
